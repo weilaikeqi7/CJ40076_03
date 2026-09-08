@@ -123,6 +123,22 @@ extern const uint8_t lcd_digit_map[LCD_DIGIT_COUNT][7];
 /** 符号 S 编号 -> Y 引脚映射表：[S编号-1] */
 extern const uint8_t lcd_symbol_map[LCD_SYMBOL_COUNT];
 
+/* -------------------- 最高位特殊笔画段（4 段构成，只需显示 0~3） -------------------- */
+
+typedef enum
+{
+    LCD_HISEG_HEADING = 0, /* 顶行首位（航向百位），笔画 S25~S28 */
+    LCD_HISEG_DIST,        /* 第二行首位（距离千位），笔画 S8~S11 */
+    LCD_HISEG_ELEV,        /* 底行首位（高程千位），笔画 S43/S44/S46/S47 */
+} lcd_hiseg_t;
+
+/**
+ * @brief 最高位特殊段显示 1~3（value=0 或 0xFF 熄灭——该段物理上无法显示 0）。
+ * @note  4 段笔画的排列与 1/2/3 字形表为推测值（见 lcd_map.c 注释），
+ *        实物点亮核对后只需修改 lcd_map.c 中两张表。
+ */
+void lcd_hiseg_digit(lcd_hiseg_t group, uint8_t value);
+
 #ifdef __cplusplus
 }
 #endif

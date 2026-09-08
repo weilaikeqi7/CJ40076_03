@@ -237,8 +237,8 @@ static void gnss_handle_gga(char* line)
     gnss_data.hdop        = nmea_atof(fields[8]);
     gnss_data.altitude_m  = nmea_atof(fields[9]);
 
-    /* GGA 先到时 RMC 未到也能给出坐标 */
-    if (gnss_data.tick_rmc == 0U && fields[2][0] != '\0' && fields[4][0] != '\0')
+    /* 有效解算时更新坐标（目标坐标解算以 GGA 为准） */
+    if (gnss_data.fix_quality != GNSS_FIX_INVALID && fields[2][0] != '\0' && fields[4][0] != '\0')
     {
         double lat = nmea_coord_to_deg(fields[2]);
         double lon = nmea_coord_to_deg(fields[4]);

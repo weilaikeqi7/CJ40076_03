@@ -80,6 +80,11 @@ static void ranger_handle_frame(uint8_t cmd, const uint8_t* params, uint8_t para
             uint16_t dist_int  = ((uint16_t)params[1] << 8) | params[2];
             uint8_t  dist_frac = params[3];
 
+            if (dist_int == 0xFFFFU)
+            {
+                break; /* 无效距离帧直接丢弃，不参与聚合 */
+            }
+
             range_result.status      = params[0];
             range_result.target_no   = (uint8_t)(params[0] >> 4); /* 多目标模式有效 */
             range_result.distance_m  = (float)dist_int + (float)dist_frac / 10.0f;

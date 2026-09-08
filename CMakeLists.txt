@@ -58,14 +58,23 @@ set(PROJECT_SOURCES
     src/main.c
     src/n32g4fr_it.c
     src/syscalls.c
-    src/board.c
-    src/board_adc.c
-    src/board_uart.c
-    src/lcd.c
-    src/lcd_map.c
-    src/gnss.c
-    src/jy901b.c
-    src/ranger.c
+    src/board/board.c
+    src/board/board_adc.c
+    src/board/board_uart.c
+    src/device/lcd.c
+    src/device/lcd_map.c
+    src/device/gnss.c
+    src/device/jy901b.c
+    src/device/ranger.c
+    src/common/rtt_log.c
+    src/app/app_store.c
+    src/app/app_key.c
+    src/app/app_attitude.c
+    src/app/app_coord.c
+    src/app/app_measure.c
+    src/app/app_display.c
+    src/app/app_calib.c
+    src/app/app.c
     "${CMSIS_DEVICE_DIR}/system_n32g4fr.c"
     "${STARTUP_FILE}"
     "${FREERTOS_KERNEL_DIR}/tasks.c"
@@ -100,6 +109,10 @@ target_compile_definitions(${APP_TARGET} PRIVATE
 
 target_include_directories(${APP_TARGET} PRIVATE
     inc
+    inc/board
+    inc/device
+    inc/app
+    inc/common
     "${CMSIS_CORE_DIR}"
     "${CMSIS_DEVICE_DIR}"
     "${STDPERIPH_DIR}/inc"

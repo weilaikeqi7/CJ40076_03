@@ -65,6 +65,42 @@ static const uint8_t lcd_font[] = {
 #define LCD_FONT_BLANK 0x00U
 #define LCD_FONT_MINUS 0x40U
 
+/* -------------------- 最高位特殊笔画段 -------------------- */
+/*
+ * 硬件事实（已确认）：特殊段只能显示 1/2/3，无法显示 0 —— 千位为 0 时熄灭。
+ *
+ * TODO（实物核对笔画顺序）：每组 4 段笔画排列按布局图箭头位置推测，
+ * 1/2/3 的字形组合为占位值，点亮实测后修改下面两张表即可。
+ */
+static const uint8_t lcd_hiseg_strokes[3][4] = {
+    [LCD_HISEG_HEADING] = {25, 26, 27, 28},  /* S25 上, S26 左上, S27 左下, S28 下 */
+    [LCD_HISEG_DIST]    = {11, 8, 9, 10},    /* S11 上?, S8 左上?, S9 左下?, S10 下? */
+    [LCD_HISEG_ELEV]    = {43, 44, 46, 47},  /* S43 上, S44 左上, S46 左下, S47 下 */
+};
+
+static const uint8_t lcd_hiseg_font[4] = {
+    0x00, /* 0：无法显示，熄灭（调用方也应避免传入 0） */
+    0x06, /* 1：左上+左下（占位，实物核对） */
+    0x0D, /* 2：上+左下+下（占位，实物核对） */
+    0x09, /* 3：上+下（占位，实物核对） */
+};
+
+void lcd_hiseg_digit(lcd_hiseg_t group, uint8_t value)
+{
+    uint8_t i;
+    uint8_t pattern = 0U;
+
+    if (value < 4U)
+    {
+        pattern = lcd_hiseg_font[value];
+    }
+
+    for (i = 0U; i < 4U; i++)
+    {
+        lcd_symbol(lcd_hiseg_strokes[group][i], (pattern & (1U << i)) != 0U);
+    }
+}
+
 void lcd_digit_seg(uint8_t digit, uint8_t seg, bool on)
 {
     if (digit < 1U || digit > LCD_DIGIT_COUNT || seg > LCD_SEG_G)
