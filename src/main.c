@@ -1,5 +1,13 @@
 #include "main.h"
 
+#include "board.h"
+#include "board_adc.h"
+#include "gnss.h"
+#include "jy901b.h"
+#include "lcd.h"
+#include "lcd_map.h"
+#include "ranger.h"
+
 #include "FreeRTOS.h"
 #include "task.h"
 
@@ -11,63 +19,132 @@
 #endif
 #endif
 
-static void enable_gpio_clock(GPIO_Module* gpio)
+/**
+ * @brief LCD 上电自检：全亮 -> 全灭 -> 棋盘 0xAA -> 棋盘 0x55
+ *        （对应原厂 DEMO240.C 的四段测试画面）
+ */
+static void lcd_self_test(void)
 {
-    if (gpio == GPIOA)
+    uint8_t* frame = lcd_frame_buffer();
+    uint8_t  i;
+
+    lcd_fill();
+    lcd_flush();
+    vTaskDelay(pdMS_TO_TICKS(1000U));
+
+    lcd_clear();
+    lcd_flush();
+    vTaskDelay(pdMS_TO_TICKS(500U));
+
+    for (i = 0U; i < LCD_FRAME_BYTES; i++)
     {
-        RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOA, ENABLE);
+        frame[i] = 0xAAU;
     }
-    else if (gpio == GPIOB)
+    frame[0] = 0x00U;
+    lcd_flush();
+    vTaskDelay(pdMS_TO_TICKS(500U));
+
+    for (i = 0U; i < LCD_FRAME_BYTES; i++)
     {
-        RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOB, ENABLE);
+        frame[i] = 0x55U;
     }
-    else if (gpio == GPIOC)
-    {
-        RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOC, ENABLE);
-    }
-    else if (gpio == GPIOD)
-    {
-        RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOD, ENABLE);
-    }
-    else if (gpio == GPIOE)
-    {
-        RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOE, ENABLE);
-    }
+    frame[0] = 0x00U;
+    lcd_flush();
+    vTaskDelay(pdMS_TO_TICKS(500U));
 }
 
-static void led_init(GPIO_Module* gpio, uint16_t pin)
-{
-    GPIO_InitType gpio_init;
-
-    enable_gpio_clock(gpio);
-    GPIO_InitStruct(&gpio_init);
-    gpio_init.Pin        = pin;
-    gpio_init.GPIO_Mode  = GPIO_Mode_Out_PP;
-    gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_InitPeripheral(gpio, &gpio_init);
-}
-
-static void led_on(GPIO_Module* gpio, uint16_t pin)
-{
-    gpio->PBSC = pin;
-}
-
-static void led_toggle(GPIO_Module* gpio, uint16_t pin)
-{
-    gpio->POD ^= pin;
-}
-
-static void led_task(void* argument)
+/**
+ * @brief 主应用任务（数码管分组按 P1237 布局）：
+ *   - 顶行 1~3：GNSS 解算卫星数；电池框+电量格
+ *   - 第二行 4~7：JY901B 俯仰角 x10 的绝对值
+ *   - 大字行 8~16：测距结果 x10（米），模式键触发单次测距
+ *   - 底行右下 21~24：电池电压（0.01V）
+ *   - 电源键：切换加热丝 30% 占空比；十字准星闪烁
+ */
+static void app_task(void* argument)
 {
     (void)argument;
 
-    led_init(LED1_PORT, LED1_PIN);
-    led_init(LED2_PORT, LED2_PIN);
-    led_on(LED1_PORT, LED1_PIN);
+    const gnss_data_t*   gnss;
+    const jy901b_data_t* imu;
+    ranger_range_t       range      = {0};
+    bool                 heater_on  = false;
+    bool                 cross_on   = true;
+    bool                 mode_prev  = false;
+    bool                 power_prev = false;
+
+    board_adc_init();
+
+    gnss_init();   /* BV-220，115200 8N1 */
+    jy901b_init(JY901B_RATE_10HZ,
+                (uint16_t)(JY901B_RSW_ACC | JY901B_RSW_GYRO | JY901B_RSW_ANGLE)); /* 垂直安装已在内部配置 */
+    ranger_init(); /* DYC-15A，115200 8N1，内含 1.6s 上电等待 */
+
+    lcd_init();
+    lcd_power_on();
+    lcd_self_test();
 
     while (1)
     {
-        led_toggle(LED2_PORT, LED2_PIN);
+        gnss_poll();
+        jy901b_poll();
+        ranger_poll();
+
+        gnss = gnss_get_data();
+        imu  = jy901b_get_data();
+
+        /* 模式键：触发单次测距 */
+        if (board_key_mode_pressed() && !mode_prev)
+        {
+            ranger_range_single();
+        }
+        mode_prev = board_key_mode_pressed();
+
+        /* 电源键：切换加热丝 30% */
+        if (board_key_power_pressed() && !power_prev)
+        {
+            heater_on = !heater_on;
+            board_heater_set_duty(heater_on ? 300U : 0U);
+        }
+        power_prev = board_key_power_pressed();
+
+        /* ------- 刷新 LCD ------- */
+        {
+            uint32_t batt_mv    = board_battery_mv();
+            uint32_t batt_centi = batt_mv / 10U; /* 0.01V 单位，如 745 = 7.45V */
+
+            lcd_clear();
+
+            /* 顶行 1~3：卫星数；电池框 + 按电压粗分三格电量 */
+            lcd_print_uint(1, 3, gnss->sats_used, false);
+            lcd_symbol(LCD_SYM_BATTERY, true);
+            lcd_symbol(LCD_SYM_BAT_BAR1, batt_mv > 3600U);
+            lcd_symbol(LCD_SYM_BAT_BAR2, batt_mv > 3800U);
+            lcd_symbol(LCD_SYM_BAT_BAR3, batt_mv > 4000U);
+
+            /* 第二行 4~7：俯仰角 x10 绝对值 */
+            {
+                int32_t pitch_x10 = (int32_t)(imu->pitch * 10.0f);
+                if (pitch_x10 < 0)
+                {
+                    pitch_x10 = -pitch_x10;
+                }
+                lcd_print_uint(4, 4, (uint32_t)pitch_x10, false);
+            }
+
+            /* 大字行 8~16：距离 x10（米） */
+            (void)ranger_get_range(&range);
+            lcd_print_uint(8, 9, (uint32_t)(range.distance_m * 10.0f), false);
+
+            /* 底行右下 21~24：电池电压 0.01V */
+            lcd_print_uint(21, 4, batt_centi, false);
+
+            lcd_symbol(LCD_SYM_CROSSHAIR, cross_on);
+            cross_on = !cross_on;
+
+            lcd_flush();
+        }
+
         vTaskDelay(pdMS_TO_TICKS(500U));
     }
 }
@@ -76,7 +153,10 @@ int main(void)
 {
     BaseType_t created;
 
-    created = xTaskCreate(led_task, "LED", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1U, NULL);
+    /* 最先初始化 GPIO 并保持电源（含电源保持脚置高） */
+    board_gpio_init();
+
+    created = xTaskCreate(app_task, "APP", configMINIMAL_STACK_SIZE * 6U, NULL, tskIDLE_PRIORITY + 1U, NULL);
     if (created != pdPASS)
     {
         Error_Handler();

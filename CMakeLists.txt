@@ -58,6 +58,14 @@ set(PROJECT_SOURCES
     src/main.c
     src/n32g4fr_it.c
     src/syscalls.c
+    src/board.c
+    src/board_adc.c
+    src/board_uart.c
+    src/lcd.c
+    src/lcd_map.c
+    src/gnss.c
+    src/jy901b.c
+    src/ranger.c
     "${CMSIS_DEVICE_DIR}/system_n32g4fr.c"
     "${STARTUP_FILE}"
     "${FREERTOS_KERNEL_DIR}/tasks.c"
