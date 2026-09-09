@@ -47,12 +47,16 @@ static void key_sample(key_state_t* ks, bool raw_down)
         ks->debounce_ms += SCAN_MS;
         if (ks->debounce_ms >= APP_KEY_DEBOUNCE_MS)
         {
-            /* 稳定状态翻转（按下或松开） */
-            ks->stable     = raw_down;
-            ks->press_ms   = 0U;
-            ks->long_fired = false;
-            ks->hold_fired = false;
-            ks->repeat_ms  = 0U;
+            /* 按下沿才复位计时；松开沿保留 press_ms，
+               供扫描逻辑读取本次按压时长（单击/多击判定依赖它） */
+            if (!ks->stable && raw_down)
+            {
+                ks->press_ms   = 0U;
+                ks->long_fired = false;
+                ks->hold_fired = false;
+                ks->repeat_ms  = 0U;
+            }
+            ks->stable = raw_down;
         }
     }
     else if (ks->stable)
