@@ -33,15 +33,27 @@ void attitude_update(void)
     }
     last_frame_tick = imu->tick_angle;
 
-    /* 俯仰 = -原始俯仰 + PIt */
+    /* 俯仰 = -原始俯仰 + PIt，截断到 ±90° */
     pitch_c01 = -(int32_t)(imu->pitch * 100.0f) + offsets.pit_c01;
+    if (pitch_c01 > 9000)
+    {
+        pitch_c01 = 9000;
+    }
+    if (pitch_c01 < -9000)
+    {
+        pitch_c01 = -9000;
+    }
 
-    /* 航向 = -原始航向 + HIt + HEr，归一化 0~359.99° */
+    /* 航向 = -原始航向 + HIt + HEr，限制到 0.00°~359.99° */
     h = -(int32_t)(imu->yaw * 100.0f) + offsets.hit_c01 + offsets.her_c01;
-    h %= 36000;
+    h %= APP_HEADING_PERIOD_C01;
     if (h < 0)
     {
-        h += 36000;
+        h += APP_HEADING_PERIOD_C01;
+    }
+    if (h > APP_HEADING_MAX_C01)
+    {
+        h = APP_HEADING_MAX_C01;
     }
     heading_c01 = h;
 }

@@ -146,6 +146,35 @@ static void draw_x4_1(lcd_hiseg_t hiseg, uint8_t first_digit, uint8_t dot_sym, u
     put_digit((uint8_t)(first_digit + 3U), (int8_t)frac);
 }
 
+/**
+ * @brief LCD 俯仰显示映射：±85.00°~±88.00°线性映射为±85.00°~±90.00°。
+ *        只改变显示值，不改变坐标和高程解算使用的姿态值。
+ */
+static int32_t pitch_display_map(int32_t pitch_c01)
+{
+    const int32_t start_c01 = APP_PIT_DISPLAY_MAP_START_C01;
+    const int32_t end_c01   = APP_PIT_DISPLAY_MAP_END_C01;
+    const int32_t max_c01   = APP_PIT_MAX_C01;
+    bool          negative  = pitch_c01 < 0;
+    int32_t       abs_c01   = negative ? -pitch_c01 : pitch_c01;
+    int32_t       mapped_c01;
+
+    if (abs_c01 <= start_c01)
+    {
+        return pitch_c01;
+    }
+    if (abs_c01 >= end_c01)
+    {
+        return negative ? -max_c01 : max_c01;
+    }
+
+    mapped_c01 = start_c01 +
+                 ((abs_c01 - start_c01) * (max_c01 - start_c01) +
+                  (end_c01 - start_c01) / 2) /
+                     (end_c01 - start_c01);
+    return negative ? -mapped_c01 : mapped_c01;
+}
+
 /** 中行俯仰：−XX.X°（digits 25 26 . 27，负号 S37，°S35），无效时空白 */
 static void draw_pitch(int32_t pitch_c01, bool valid)
 {
@@ -165,6 +194,7 @@ static void draw_pitch(int32_t pitch_c01, bool valid)
         return;
     }
 
+    pitch_c01 = pitch_display_map(pitch_c01);
     abs_x1   = (uint32_t)((pitch_c01 < 0) ? -pitch_c01 : pitch_c01) / 10U; /* 0.1° */
     int_part = abs_x1 / 10U;
     frac     = (uint8_t)(abs_x1 % 10U);

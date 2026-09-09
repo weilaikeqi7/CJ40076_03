@@ -42,6 +42,14 @@
 #define APP_HIT_MAX_C01 18000
 #define APP_HER_MAX_C01 18000
 
+/** LCD 俯仰显示映射：实际 ±85°~±88° 映射为显示 ±85°~±90° */
+#define APP_PIT_DISPLAY_MAP_START_C01 8500
+#define APP_PIT_DISPLAY_MAP_END_C01   8800
+
+/** 航向显示范围（0.01 度）：0.00°~359.99° */
+#define APP_HEADING_PERIOD_C01 36000
+#define APP_HEADING_MAX_C01    35999
+
 /** IMU 数据超时（超过则认为姿态无效） */
 #define APP_IMU_TIMEOUT_MS 500U
 /** GNSS 定位数据超时 */
