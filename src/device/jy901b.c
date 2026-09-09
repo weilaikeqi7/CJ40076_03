@@ -223,6 +223,20 @@ void jy901b_yaw_zero(void)
     jy901b_write_reg_save(JY901B_REG_SAVE, 0x0000U);
 }
 
+void jy901b_factory_reset(void)
+{
+    /* 解锁 -> 恢复出厂（SAVE=0x0001）-> 等待模块重启 -> 重新配置本项目参数 */
+    jy901b_write_reg_raw(JY901B_REG_KEY, JY901B_UNLOCK_KEY);
+    vTaskDelay(pdMS_TO_TICKS(200U));
+    jy901b_write_reg_raw(JY901B_REG_SAVE, 0x0001U);
+    vTaskDelay(pdMS_TO_TICKS(1000U));
+    board_uart_flush_rx(JY901B_UART);
+
+    jy901b_write_reg_save(JY901B_REG_ORIENT, 0x0001U);
+    jy901b_write_reg_save(JY901B_REG_RSW, JY901B_RSW_ANGLE);
+    jy901b_write_reg_save(JY901B_REG_RRATE, (uint16_t)JY901B_RATE_5HZ);
+}
+
 void jy901b_calib_mag_start(void)
 {
     /* 解锁 -> 进入磁场校准（CALSW=0x07），不保存，等用户旋转 */

@@ -190,10 +190,10 @@ app_key_event_t app_key_scan(void)
         key_power.press_ms = 0U;
     }
 
-    /* ---------- 正常模式：模式键多击（600ms 窗口） ---------- */
+    /* ---------- 正常模式：模式键多击（最多10击，600ms 窗口） ---------- */
     if (!key_mode.stable && key_mode.press_ms > 0U)
     {
-        if (key_mode.press_ms < APP_KEY_LONG_MS && click_count < 9U)
+        if (key_mode.press_ms < APP_KEY_LONG_MS && click_count < 10U)
         {
             click_count++;
             click_expire_ms = 0U;

@@ -134,6 +134,15 @@ bool calib_handle_key(const app_key_event_t* evt)
                 state = CALIB_NONE;
                 LOGI("calib: angle reference done\r\n");
                 return true;
+            case 10: /* 十击：JY901B 恢复出厂设置（先全显再阻塞） */
+                ensure_imu_on();
+                state = CALIB_ANG_BUSY;
+                lcd_fill();
+                lcd_flush();
+                jy901b_factory_reset();
+                state = CALIB_NONE;
+                LOGI("calib: factory reset done\r\n");
+                return true;
             default:
                 break;
             }

@@ -106,6 +106,12 @@ void jy901b_set_angle_ref(void);                /* 角度参考（当前位置 X
 void jy901b_yaw_zero(void);                     /* Z 轴航向角置零（仅六轴算法，约3s） */
 
 /**
+ * @brief 恢复 JY901B 出厂设置（SAVE=0x0001），随后等待模块重启。
+ * @note  恢复后会重新执行当前项目要求的垂直安装、5Hz角度帧配置。
+ */
+void jy901b_factory_reset(void);
+
+/**
  * @brief 磁场校准开始（球型拟合法，CALSW=0x07）。
  *        调用后需持设备绕三个轴各旋转数圈，完成后调用 jy901b_calib_mag_end()。
  * @note  校准过程不自动退出计时，但建议 5 分钟内完成三轴旋转。
