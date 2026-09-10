@@ -22,7 +22,8 @@ void board_adc_init(void)
 
     /* ADC1 时钟：AHB 使能 + HCLK/8（144MHz 下为 18MHz） */
     RCC_EnableAHBPeriphClk(RCC_AHB_PERIPH_ADC1, ENABLE);
-    RCC_ConfigAdcHclk(RCC_ADCHCLK_DIV8);
+    ADC_ConfigClk(ADC_CTRL3_CKMOD_AHB,RCC_ADCHCLK_DIV8);
+    RCC_ConfigAdc1mClk(RCC_ADC1MCLK_SRC_HSE, RCC_ADC1MCLK_DIV8);
 
     ADC_InitStruct(&adc_init);
     adc_init.WorkMode       = ADC_WORKMODE_INDEPENDENT;
