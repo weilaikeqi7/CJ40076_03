@@ -29,6 +29,7 @@ static uint32_t round_start_tick; /* 本轮发起时刻 */
 static uint32_t last_frame_tick;  /* 本轮最近回包时刻 */
 static uint32_t next_round_tick;  /* 下一轮计划时刻 */
 static bool     any_frame;        /* 本轮收到过有效距离帧 */
+static bool     oor_received;     /* 本轮收到超距/无目标应答（模块已给出结论） */
 static uint8_t  frame_count;      /* 本轮有效帧数 */
 static uint8_t  max_target_no;    /* 本轮最大目标编号 */
 
@@ -42,6 +43,7 @@ static void round_begin(void)
     round_start_tick = xTaskGetTickCount();
     last_frame_tick  = round_start_tick;
     any_frame        = false;
+    oor_received     = false;
     frame_count      = 0U;
     max_target_no    = 0U;
 
@@ -71,15 +73,35 @@ static void round_publish(void)
     }
 }
 
+/** 发布前收尾：单目标去末目标、首末同值去末目标，然后发布 */
+static void round_finalize(void)
+{
+    /* 单目标（仅 1 帧且无后目标/编号 0）：只保留首目标 */
+    if (frame_count <= 1U && max_target_no == 0U)
+    {
+        result.far_valid = false;
+    }
+    /* 首末同值时末目标无意义 */
+    if (result.far_valid && result.near_valid && result.far_mm == result.near_mm)
+    {
+        result.far_valid = false;
+    }
+    round_publish();
+}
+
 static void round_aggregate_frame(const ranger_range_t* fr)
 {
-    uint32_t dist_mm = (uint32_t)(fr->distance_m * 1000.0f + 0.5f);
-    uint8_t  st_low  = fr->status & 0x0FU;
+    uint32_t dist_mm;
+    uint8_t  st_low = fr->status & 0x0FU;
 
-    if (st_low == 0x04U)
+    /* 超距/无目标应答：模块本轮已给出结论，标记后立即结束本轮 */
+    if (st_low == 0x04U || fr->distance_m < 0.0f)
     {
-        return; /* 超距帧不改变聚合（静默后按当前聚合结果发布） */
+        oor_received = true;
+        return;
     }
+
+    dist_mm = (uint32_t)(fr->distance_m * 1000.0f + 0.5f);
 
     frame_count++;
     any_frame       = true;
@@ -182,20 +204,17 @@ void measure_poll(void)
 
     now = xTaskGetTickCount();
 
+    /* 超距/无目标应答：立即结束本轮并发布（无有效帧则为横杠） */
+    if (oor_received)
+    {
+        round_finalize();
+        return;
+    }
+
     /* 帧间静默 200ms -> 聚合发布 */
     if (any_frame && (now - last_frame_tick) >= pdMS_TO_TICKS(APP_MEASURE_SILENCE_MS))
     {
-        /* 单目标（仅 1 帧且无后目标/编号 0）：只保留首目标 */
-        if (frame_count <= 1U && max_target_no == 0U)
-        {
-            result.far_valid = false;
-        }
-        /* 首末同值时末目标无意义 */
-        if (result.far_valid && result.near_valid && result.far_mm == result.near_mm)
-        {
-            result.far_valid = false;
-        }
-        round_publish();
+        round_finalize();
         return;
     }
 
