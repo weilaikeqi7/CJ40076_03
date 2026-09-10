@@ -180,12 +180,12 @@ static void on_measure_published(void)
         /* 取测量完成附近的姿态/定位快照解算目标坐标 */
         app_geo_point_t self;
 
-        target_published = true;
         target_near.valid = false;
         target_far.valid  = false;
 
         if (res->near_valid && attitude_valid() && coord_get_self(&self))
         {
+            target_published = true;
             coord_compute_target(&self, (float)res->near_mm / 1000.0f, attitude_heading_c01(),
                                  attitude_pitch_c01(), &target_near);
             if (res->far_valid)
@@ -193,6 +193,11 @@ static void on_measure_published(void)
                 coord_compute_target(&self, (float)res->far_mm / 1000.0f, attitude_heading_c01(),
                                      attitude_pitch_c01(), &target_far);
             }
+        }
+        else
+        {
+            /* 测距失败（或姿态/定位无效）：坐标/高程区回落本机显示，不显示横杠 */
+            target_published = false;
         }
 
         LOGI("app: multi published, near_valid=%d target_valid=%d\r\n", (int)res->near_valid,

@@ -21,6 +21,8 @@
 
 #define RANGER_FRAME_MAX 16U /* EE 16 + LEN + 最多 9 数据 + SUM */
 
+#define RANGER_CMD_GAP_MS 20U /* DYC-15A 逐条处理指令：两条命令间必须留间隔 */
+
 /* 命令码 */
 #define RANGER_CMD_SELF_CHECK 0x01U
 #define RANGER_CMD_SINGLE     0x02U
@@ -43,10 +45,24 @@ static uint32_t           last_frame_tick;
 
 static void ranger_send(uint8_t cmd, const uint8_t* params, uint8_t param_len)
 {
+    static uint32_t last_tx_tick;
     uint8_t frame[RANGER_FRAME_MAX];
     uint8_t len = (uint8_t)(2U + param_len); /* 设备码 + 命令码 + 参数 */
     uint8_t sum = (uint8_t)(RANGER_DEV + cmd);
     uint8_t i;
+    uint32_t now = xTaskGetTickCount();
+
+    /* 指令间最小间隔：模块逐条处理，背靠背发送会丢弃后一条（如实测的
+       "设多目标 + 单次测距"连发导致测距无响应） */
+    if (last_tx_tick != 0U)
+    {
+        uint32_t elapsed = now - last_tx_tick;
+
+        if (elapsed < pdMS_TO_TICKS(RANGER_CMD_GAP_MS))
+        {
+            vTaskDelay(pdMS_TO_TICKS(RANGER_CMD_GAP_MS) - elapsed);
+        }
+    }
 
     frame[0] = RANGER_HEAD0;
     frame[1] = RANGER_HEAD1;
@@ -61,6 +77,7 @@ static void ranger_send(uint8_t cmd, const uint8_t* params, uint8_t param_len)
     frame[5 + param_len] = sum;
 
     board_uart_write(RANGER_UART, frame, (size_t)(6U + param_len));
+    last_tx_tick = xTaskGetTickCount();
 }
 
 /* ------------------------------ 响应解析 ------------------------------ */
