@@ -1,6 +1,12 @@
 /**
  * @file lcd.c
- * @brief P1237 段码屏底层驱动实现（四线串行移位 + FR 方波定时器）
+ * @brief FO-DM0001 OLED段码屏驱动实现（SSD1357，模拟I2C）
+ *
+ * SSD1357说明：
+ *   - 128x128 双色OLED驱动IC
+ *   - I2C地址：0x3C（7位地址，写=0x78，读=0x79）
+ *   - 每个段对应GDDRAM中的一位
+ *   - 双色控制：红色通道 + 绿色通道
  */
 #include "lcd.h"
 
@@ -9,150 +15,222 @@
 
 #include <string.h>
 
-#define LCD_DISP_PORT BOARD_LCD_DISP_PORT
-#define LCD_DISP_PIN  BOARD_LCD_DISP_PIN
-#define LCD_EI_PORT   BOARD_LCD_EI_PORT
-#define LCD_EI_PIN    BOARD_LCD_EI_PIN
-#define LCD_LP_PORT   BOARD_LCD_LP_PORT
-#define LCD_LP_PIN    BOARD_LCD_LP_PIN
-#define LCD_FR_PORT   BOARD_LCD_FR_PORT
-#define LCD_FR_PIN    BOARD_LCD_FR_PIN
+/* 前向声明 */
+static void lcd_delay_us(uint32_t us);
 
-/** FR 翻转用定时器（APB1 通用定时器） */
-#define LCD_FR_TIM TIM3
+/* I2C引脚定义 */
+#define I2C_SCL_PORT BOARD_LCD_I2C_SCL_PORT
+#define I2C_SCL_PIN  BOARD_LCD_I2C_SCL_PIN
+#define I2C_SDA_PORT BOARD_LCD_I2C_SDA_PORT
+#define I2C_SDA_PIN  BOARD_LCD_I2C_SDA_PIN
+#define LCD_RST_PORT BOARD_LCD_RST_PORT
+#define LCD_RST_PIN  BOARD_LCD_RST_PIN
 
-/** 移位时钟高低电平最小保持时间（us），原厂 DEMO 约 2us */
-#define LCD_SHIFT_US 2U
+/* SSD1357 I2C地址（7位地址0x3C） */
+#define SSD1357_I2C_ADDR 0x3CU
+#define SSD1357_WRITE    (SSD1357_I2C_ADDR << 1)
+#define SSD1357_READ     ((SSD1357_I2C_ADDR << 1) | 0x01U)
 
-/*
- * 字节内位序：默认 LSB=Y240（与 DEMO240.C 一致，每字节 bit0 先移出）。
- * 若实物点亮发现整屏错位/反相，定义 LCD_BIT_REVERSED 改用 MSB=Y240 重试。
- * LCD_COMMON_MASK 为帧缓冲第 1 字节中“有效段”位掩码（剔除 COMMON/NC 位）。
- */
-#ifdef LCD_BIT_REVERSED
-#define LCD_BIT_MASK(index) ((uint8_t)(0x80U >> ((index) & 0x07U)))
-#define LCD_COMMON_MASK     0x3FU /* bit7=Y240(COMMON)、bit6=Y239(NC) */
-#else
-#define LCD_BIT_MASK(index) ((uint8_t)(1U << ((index) & 0x07U)))
-#define LCD_COMMON_MASK     0xFCU /* bit0=Y240(COMMON)、bit1=Y239(NC) */
-#endif
+/* SSD1357命令 */
+#define SSD1357_CMD  0x00U
+#define SSD1357_DATA 0x40U
 
+/* 显示缓冲区：384位 = 48字节 */
+#define LCD_FRAME_BYTES 48U
 static uint8_t lcd_frame[LCD_FRAME_BYTES];
 
-/* 粗略微秒级延时（移位时序要求不高，按 4 周期/次估算） */
-static void lcd_delay_us(uint32_t us)
+/* I2C延时（微秒级） */
+static void i2c_delay(void)
 {
-    uint32_t count = us * (SystemCoreClock / 1000000U) / 4U;
-
+    uint32_t count = 10U;
     while (count-- > 0U)
     {
         __NOP();
     }
 }
 
-static void lcd_gpio_write(GPIO_Module* port, uint16_t pin, bool high)
+/* I2C GPIO操作 */
+static void i2c_scl_high(void) { I2C_SCL_PORT->PBSC = I2C_SCL_PIN; }
+static void i2c_scl_low(void)  { I2C_SCL_PORT->PBC = I2C_SCL_PIN; }
+static void i2c_sda_high(void) { I2C_SDA_PORT->PBSC = I2C_SDA_PIN; }
+static void i2c_sda_low(void)  { I2C_SDA_PORT->PBC = I2C_SDA_PIN; }
+
+/* I2C起始信号 */
+static void i2c_start(void)
 {
-    if (high)
-    {
-        port->PBSC = pin;
-    }
-    else
-    {
-        port->PBC = pin;
-    }
+    i2c_sda_high();
+    i2c_scl_high();
+    i2c_delay();
+    i2c_sda_low();
+    i2c_delay();
+    i2c_scl_low();
+    i2c_delay();
 }
 
-/* ------------------------- FR 方波（TIM3 更新中断） ------------------------- */
-
-static void lcd_fr_start(void)
+/* I2C停止信号 */
+static void i2c_stop(void)
 {
-    RCC_ClocksType       clocks;
-    TIM_TimeBaseInitType tim_init = {0};
-    NVIC_InitType        nvic_init;
-    uint32_t             tim_clk;
-    uint32_t             psc;
-    uint32_t             arr;
-
-    RCC_EnableAPB1PeriphClk(RCC_APB1_PERIPH_TIM3, ENABLE);
-
-    /* APB1 预分频不为 1 时，定时器时钟 = PCLK1 * 2 */
-    RCC_GetClocksFreqValue(&clocks);
-    tim_clk = clocks.Pclk1Freq;
-    if (clocks.Pclk1Freq != clocks.HclkFreq)
-    {
-        tim_clk *= 2U;
-    }
-
-    /* 计数时钟降到约 1MHz，再按 FR*2 的翻转频率装载 */
-    psc = tim_clk / 1000000U;
-    if (psc == 0U)
-    {
-        psc = 1U;
-    }
-    arr = (tim_clk / psc) / (LCD_FR_FREQ_HZ * 2U);
-    if (arr == 0U)
-    {
-        arr = 1U;
-    }
-
-    tim_init.Prescaler = (uint16_t)(psc - 1U);
-    tim_init.CntMode   = TIM_CNT_MODE_UP;
-    tim_init.Period    = (uint16_t)(arr - 1U);
-    tim_init.ClkDiv    = TIM_CLK_DIV1;
-    tim_init.RepetCnt  = 0;
-    TIM_InitTimeBase(LCD_FR_TIM, &tim_init);
-
-    /* 优先级 2：高于 configMAX_SYSCALL_INTERRUPT_PRIORITY(5)，
-       ISR 仅翻转 GPIO，不调用 FreeRTOS API */
-    nvic_init.NVIC_IRQChannel                   = TIM3_IRQn;
-    nvic_init.NVIC_IRQChannelPreemptionPriority = 2;
-    nvic_init.NVIC_IRQChannelSubPriority        = 0;
-    nvic_init.NVIC_IRQChannelCmd                = ENABLE;
-    NVIC_Init(&nvic_init);
-
-    TIM_ClrIntPendingBit(LCD_FR_TIM, TIM_INT_UPDATE);
-    TIM_ConfigInt(LCD_FR_TIM, TIM_INT_UPDATE, ENABLE);
-    TIM_Enable(LCD_FR_TIM, ENABLE);
+    i2c_sda_low();
+    i2c_scl_high();
+    i2c_delay();
+    i2c_sda_high();
+    i2c_delay();
 }
 
-static void lcd_fr_stop(void)
+/* I2C发送一个字节，返回ACK（true=ACK） */
+static bool i2c_write_byte(uint8_t data)
 {
-    TIM_Enable(LCD_FR_TIM, DISABLE);
-    TIM_ConfigInt(LCD_FR_TIM, TIM_INT_UPDATE, DISABLE);
-    lcd_gpio_write(LCD_FR_PORT, LCD_FR_PIN, false);
+    uint8_t i;
+    bool ack;
+
+    for (i = 0U; i < 8U; i++)
+    {
+        if ((data & 0x80U) != 0U)
+        {
+            i2c_sda_high();
+        }
+        else
+        {
+            i2c_sda_low();
+        }
+        i2c_delay();
+        i2c_scl_high();
+        i2c_delay();
+        i2c_scl_low();
+        i2c_delay();
+        data <<= 1;
+    }
+
+    /* 读取ACK */
+    i2c_sda_high(); /* 释放SDA */
+    i2c_delay();
+    i2c_scl_high();
+    i2c_delay();
+    ack = (I2C_SDA_PORT->PID & I2C_SDA_PIN) == 0U;
+    i2c_scl_low();
+    i2c_delay();
+
+    return ack;
 }
 
-void TIM3_IRQHandler(void)
+/* SSD1357写命令 */
+static void ssd1357_write_cmd(uint8_t cmd)
 {
-    if (TIM_GetIntStatus(LCD_FR_TIM, TIM_INT_UPDATE) != RESET)
+    i2c_start();
+    (void)i2c_write_byte(SSD1357_WRITE);
+    (void)i2c_write_byte(SSD1357_CMD);
+    (void)i2c_write_byte(cmd);
+    i2c_stop();
+}
+
+/* SSD1357写数据 */
+static void ssd1357_write_data(uint8_t data)
+{
+    i2c_start();
+    (void)i2c_write_byte(SSD1357_WRITE);
+    (void)i2c_write_byte(SSD1357_DATA);
+    (void)i2c_write_byte(data);
+    i2c_stop();
+}
+
+/* SSD1357初始化序列 */
+static void ssd1357_init(void)
+{
+    /* 复位SSD1357 */
+    LCD_RST_PORT->PBC = LCD_RST_PIN;
+    lcd_delay_us(10000U); /* 10ms */
+    LCD_RST_PORT->PBSC = LCD_RST_PIN;
+    lcd_delay_us(10000U);
+
+    /* 初始化命令序列（参考SSD1357 datasheet） */
+    ssd1357_write_cmd(0xFDU); /* Set Command Lock */
+    ssd1357_write_cmd(0x12U); /* Unlock */
+
+    ssd1357_write_cmd(0xAEU); /* Display Off */
+
+    ssd1357_write_cmd(0xB3U); /* Display Clock Div */
+    ssd1357_write_cmd(0xF1U);
+
+    ssd1357_write_cmd(0xCAU); /* Multiplex Ratio */
+    ssd1357_write_cmd(0x7FU); /* 1/128 */
+
+    ssd1357_write_cmd(0xA0U); /* Set Re-map */
+    ssd1357_write_cmd(0x74U);
+
+    ssd1357_write_cmd(0xA1U); /* Set Display Start Line */
+    ssd1357_write_cmd(0x00U);
+
+    ssd1357_write_cmd(0xA2U); /* Set Display Offset */
+    ssd1357_write_cmd(0x00U);
+
+    ssd1357_write_cmd(0xABU); /* Function Selection A */
+    ssd1357_write_cmd(0x01U); /* Enable internal VDD regulator */
+
+    ssd1357_write_cmd(0xB4U); /* Phase Length */
+    ssd1357_write_cmd(0xA0U);
+    ssd1357_write_cmd(0xB5U);
+    ssd1357_write_cmd(0x55U);
+
+    ssd1357_write_cmd(0xC1U); /* Set Contrast Current */
+    ssd1357_write_cmd(0xC8U);
+
+    ssd1357_write_cmd(0xC7U); /* Master Contrast Current Control */
+    ssd1357_write_cmd(0x0FU);
+
+    ssd1357_write_cmd(0xB1U); /* Set Pre-charge voltage */
+    ssd1357_write_cmd(0x32U);
+
+    ssd1357_write_cmd(0xB2U); /* Display Enhancement */
+    ssd1357_write_cmd(0xA4U);
+    ssd1357_write_cmd(0x00U);
+    ssd1357_write_cmd(0x00U);
+
+    ssd1357_write_cmd(0xBBU); /* Set Second Pre-charge voltage */
+    ssd1357_write_cmd(0x17U);
+
+    ssd1357_write_cmd(0xB6U); /* Set Second Pre-charge period */
+    ssd1357_write_cmd(0x01U);
+
+    ssd1357_write_cmd(0xBEU); /* Set VCOMH */
+    ssd1357_write_cmd(0x05U);
+
+    ssd1357_write_cmd(0xA4U); /* Normal Display */
+
+    ssd1357_write_cmd(0xAFU); /* Display On */
+}
+
+/* 微秒级延时 */
+static void lcd_delay_us(uint32_t us)
+{
+    uint32_t count = us * (SystemCoreClock / 1000000U) / 4U;
+    while (count-- > 0U)
     {
-        TIM_ClrIntPendingBit(LCD_FR_TIM, TIM_INT_UPDATE);
-        LCD_FR_PORT->POD ^= LCD_FR_PIN;
+        __NOP();
     }
 }
-
-/* ------------------------------ 接口与移位 ------------------------------ */
 
 void lcd_init(void)
 {
     GPIO_InitType gpio_init;
 
-    RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOA | RCC_APB2_PERIPH_GPIOB, ENABLE);
+    RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOA | RCC_APB2_PERIPH_GPIOC, ENABLE);
 
+    /* 配置I2C引脚为开漏输出 */
     GPIO_InitStruct(&gpio_init);
-    gpio_init.Pin        = LCD_DISP_PIN | LCD_EI_PIN;
-    gpio_init.GPIO_Mode  = GPIO_Mode_Out_PP;
+    gpio_init.Pin        = I2C_SCL_PIN | I2C_SDA_PIN;
+    gpio_init.GPIO_Mode  = GPIO_Mode_Out_OD;
     gpio_init.GPIO_Speed = GPIO_Speed_10MHz;
+    GPIO_InitPeripheral(GPIOC, &gpio_init);
+
+    /* 配置复位引脚为推挽输出 */
+    gpio_init.Pin       = LCD_RST_PIN;
+    gpio_init.GPIO_Mode = GPIO_Mode_Out_PP;
     GPIO_InitPeripheral(GPIOA, &gpio_init);
 
-    gpio_init.Pin = LCD_LP_PIN | LCD_FR_PIN;
-    GPIO_InitPeripheral(GPIOB, &gpio_init);
-
-    /* 空闲电平全低，显示禁止 */
-    lcd_gpio_write(LCD_DISP_PORT, LCD_DISP_PIN, false);
-    lcd_gpio_write(LCD_EI_PORT, LCD_EI_PIN, false);
-    lcd_gpio_write(LCD_LP_PORT, LCD_LP_PIN, false);
-    lcd_gpio_write(LCD_FR_PORT, LCD_FR_PIN, false);
+    /* 空闲电平 */
+    i2c_scl_high();
+    i2c_sda_high();
+    LCD_RST_PORT->PBSC = LCD_RST_PIN;
 
     lcd_clear();
 }
@@ -160,23 +238,18 @@ void lcd_init(void)
 void lcd_power_on(void)
 {
     board_lcd_power(true);
-    lcd_delay_us(20000U); /* 等屏驱动电源稳定约 20ms */
+    lcd_delay_us(20000U); /* 等屏电源稳定20ms */
+
+    ssd1357_init();
 
     lcd_clear();
     lcd_flush();
-
-    lcd_fr_start();
-    lcd_gpio_write(LCD_DISP_PORT, LCD_DISP_PIN, true); /* 开显示 + 背光 */
 }
 
 void lcd_power_off(void)
 {
-    /* 必须先关显示驱动输出，再断屏电源 */
-    lcd_gpio_write(LCD_DISP_PORT, LCD_DISP_PIN, false);
+    ssd1357_write_cmd(0xAEU); /* Display Off */
     lcd_delay_us(1000U);
-    lcd_fr_stop();
-    lcd_gpio_write(LCD_EI_PORT, LCD_EI_PIN, false);
-    lcd_gpio_write(LCD_LP_PORT, LCD_LP_PIN, false);
     board_lcd_power(false);
 }
 
@@ -188,53 +261,56 @@ void lcd_clear(void)
 void lcd_fill(void)
 {
     memset(lcd_frame, 0xFF, sizeof(lcd_frame));
-    lcd_frame[0] &= LCD_COMMON_MASK; /* COMMON/NC 位恒 0 */
 }
 
-void lcd_set_raw(uint8_t y_pin, bool on)
+void lcd_set_seg(uint16_t seg, bool on)
 {
-    uint16_t index;
-    uint8_t  mask;
+    uint16_t byte_idx;
+    uint8_t  bit_idx;
 
-    if (y_pin == 0U || y_pin > LCD_PIN_COUNT)
+    if (seg >= 384U)
     {
         return;
     }
 
-    /* 帧缓冲第 1 字节对应 Y240..Y233，最后 1 字节对应 Y8..Y1 */
-    index = (uint16_t)(LCD_PIN_COUNT - y_pin);
-    mask  = LCD_BIT_MASK(index);
+    byte_idx = seg / 8U;
+    bit_idx  = (uint8_t)(seg % 8U);
 
     if (on)
     {
-        lcd_frame[index >> 3] |= mask;
+        lcd_frame[byte_idx] |= (uint8_t)(1U << bit_idx);
     }
     else
     {
-        lcd_frame[index >> 3] &= (uint8_t)~mask;
+        lcd_frame[byte_idx] &= (uint8_t)~(1U << bit_idx);
     }
-    lcd_frame[0] &= LCD_COMMON_MASK; /* COMMON/NC 位恒 0 */
 }
 
 void lcd_flush(void)
 {
-    uint32_t i;
-    uint8_t  bit;
+    uint16_t i;
+
+    /* 设置列地址（SEG） */
+    ssd1357_write_cmd(0x15U); /* Set Column Address */
+    ssd1357_write_cmd(0x00U); /* Start = 0 */
+    ssd1357_write_cmd(0x7FU); /* End = 127 */
+
+    /* 设置行地址（COM） */
+    ssd1357_write_cmd(0x75U); /* Set Row Address */
+    ssd1357_write_cmd(0x00U); /* Start = 0 */
+    ssd1357_write_cmd(0x7FU); /* End = 127 */
+
+    /* 写显示数据 */
+    i2c_start();
+    (void)i2c_write_byte(SSD1357_WRITE);
+    (void)i2c_write_byte(SSD1357_DATA);
 
     for (i = 0U; i < LCD_FRAME_BYTES; i++)
     {
-        uint8_t data = lcd_frame[i];
-
-        for (bit = 0U; bit < 8U; bit++)
-        {
-            lcd_gpio_write(LCD_EI_PORT, LCD_EI_PIN, (data & 0x01U) != 0U);
-            lcd_gpio_write(LCD_LP_PORT, LCD_LP_PIN, true);
-            lcd_delay_us(LCD_SHIFT_US);
-            lcd_gpio_write(LCD_LP_PORT, LCD_LP_PIN, false);
-            lcd_delay_us(LCD_SHIFT_US);
-            data >>= 1;
-        }
+        (void)i2c_write_byte(lcd_frame[i]);
     }
+
+    i2c_stop();
 }
 
 uint8_t* lcd_frame_buffer(void)
