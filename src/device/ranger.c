@@ -34,8 +34,10 @@
 #define RANGER_CMD_GATE_MIN   0xA2U
 #define RANGER_CMD_GATE_MAX   0xA4U
 
-static ranger_range_t     range_result;
-static bool               range_new;
+#define RANGER_QUEUE_SIZE 4U
+static ranger_range_t     range_queue[RANGER_QUEUE_SIZE];
+static uint8_t            range_q_head;
+static uint8_t            range_q_tail;
 static ranger_selfcheck_t selfcheck_result;
 static bool               selfcheck_new;
 static uint8_t            last_error = 0xFFU;
@@ -96,22 +98,29 @@ static void ranger_handle_frame(uint8_t cmd, const uint8_t* params, uint8_t para
         {
             uint16_t dist_int  = ((uint16_t)params[1] << 8) | params[2];
             uint8_t  dist_frac = params[3];
+            ranger_range_t item;
 
-            range_result.status     = params[0];
-            range_result.target_no  = (uint8_t)(params[0] >> 4); /* 多目标模式有效 */
-            range_result.continuous = (cmd == RANGER_CMD_CONTINUOUS);
-            range_result.tick       = now;
+            item.status     = params[0];
+            item.target_no  = (uint8_t)(params[0] >> 4); /* 多目标模式有效 */
+            item.continuous = (cmd == RANGER_CMD_CONTINUOUS);
+            item.tick       = now;
 
             if (dist_int == 0xFFFFU)
             {
                 /* 无效距离（超距/无目标）：状态字节仍有效，须上交给轮次状态机 */
-                range_result.distance_m = -1.0f;
+                item.distance_m = -1.0f;
             }
             else
             {
-                range_result.distance_m = (float)dist_int + (float)dist_frac / 10.0f;
+                item.distance_m = (float)dist_int + (float)dist_frac / 10.0f;
             }
-            range_new = true;
+
+            uint8_t next_head = (uint8_t)((range_q_head + 1U) % RANGER_QUEUE_SIZE);
+            if (next_head != range_q_tail)
+            {
+                range_queue[range_q_head] = item;
+                range_q_head              = next_head;
+            }
         }
         break;
 
@@ -222,7 +231,8 @@ void ranger_init(void)
     vTaskDelay(pdMS_TO_TICKS(1600U));
     board_uart_flush_rx(RANGER_UART);
 
-    range_new     = false;
+    range_q_head  = 0U;
+    range_q_tail  = 0U;
     selfcheck_new = false;
     last_error    = 0xFFU;
 }
@@ -292,11 +302,14 @@ void ranger_set_gate_max(uint16_t m)
 
 bool ranger_get_range(ranger_range_t* out)
 {
-    bool fresh = range_new;
+    if (range_q_head == range_q_tail)
+    {
+        return false;
+    }
 
-    *out      = range_result;
-    range_new = false;
-    return fresh;
+    *out         = range_queue[range_q_tail];
+    range_q_tail = (uint8_t)((range_q_tail + 1U) % RANGER_QUEUE_SIZE);
+    return true;
 }
 
 bool ranger_get_selfcheck(ranger_selfcheck_t* out)

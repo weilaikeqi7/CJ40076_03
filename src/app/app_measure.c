@@ -76,6 +76,8 @@ static void round_publish(void)
 /** 发布前收尾：单目标去末目标、首末同值去末目标，然后发布 */
 static void round_finalize(void)
 {
+    /* 临界区原子操作：确保首末目标整理与发布标志一次性提交，防止屏幕任务读到半成品 */
+    taskENTER_CRITICAL();
     /* 单目标（仅 1 帧且无后目标/编号 0）：只保留首目标 */
     if (frame_count <= 1U && max_target_no == 0U)
     {
@@ -87,6 +89,7 @@ static void round_finalize(void)
         result.far_valid = false;
     }
     round_publish();
+    taskEXIT_CRITICAL();
 }
 
 static void round_aggregate_frame(const ranger_range_t* fr)

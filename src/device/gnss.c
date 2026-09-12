@@ -232,6 +232,8 @@ static void gnss_handle_gga(char* line)
         return;
     }
 
+    /* 临界区原子提交 GGA 定位快照：防止 64 位 double (lat/lon) 在多任务并发读取时被截断撕裂 */
+    taskENTER_CRITICAL();
     gnss_data.fix_quality = (gnss_fix_t)nmea_atou(fields[6]);
     gnss_data.sats_used   = (uint8_t)nmea_atou(fields[7]);
     gnss_data.hdop        = nmea_atof(fields[8]);
@@ -256,6 +258,7 @@ static void gnss_handle_gga(char* line)
     }
 
     gnss_data.tick_gga = xTaskGetTickCount();
+    taskEXIT_CRITICAL();
 }
 
 static void gnss_handle_line(char* line, int len)
@@ -282,12 +285,43 @@ static void gnss_handle_line(char* line, int len)
 
 /* ------------------------------ 对外接口 ------------------------------ */
 
+/**
+ * @brief 发送 NMEA 配置字符串（自动追加 \\r\\n）
+ */
+static void gnss_send_cmd(const char* cmd)
+{
+    board_uart_write(GNSS_UART, cmd, strlen(cmd));
+    board_uart_write(GNSS_UART, "\r\n", 2U);
+}
+
 void gnss_init(void)
 {
     board_gnss_power(true);
     board_uart_init(GNSS_UART, GNSS_BAUD);
 
-    vTaskDelay(pdMS_TO_TICKS(100U));
+    vTaskDelay(pdMS_TO_TICKS(200U));
+
+    /*
+     * 根据 B 系列配置手册：只保留 GGA 语句，关闭其余冗余语句：
+     * 0: GGA (保留), 1: GSA (关), 2: GSV (关), 3: VTG (关),
+     * 4: CNR (关), 5: RMC (关), 6: CLK (关)
+     * 防范环形缓冲区被 GSV/GSA 等多行冗余数据打爆
+     */
+    gnss_send_cmd("$POLCFGMSG,0,0,1"); /* 确保 GGA 开启 */
+    vTaskDelay(pdMS_TO_TICKS(20U));
+    gnss_send_cmd("$POLCFGMSG,0,1,0"); /* 关闭 GSA */
+    vTaskDelay(pdMS_TO_TICKS(20U));
+    gnss_send_cmd("$POLCFGMSG,0,2,0"); /* 关闭 GSV (最大冗余源) */
+    vTaskDelay(pdMS_TO_TICKS(20U));
+    gnss_send_cmd("$POLCFGMSG,0,3,0"); /* 关闭 VTG */
+    vTaskDelay(pdMS_TO_TICKS(20U));
+    gnss_send_cmd("$POLCFGMSG,0,4,0"); /* 关闭 CNR */
+    vTaskDelay(pdMS_TO_TICKS(20U));
+    gnss_send_cmd("$POLCFGMSG,0,5,0"); /* 关闭 RMC */
+    vTaskDelay(pdMS_TO_TICKS(20U));
+    gnss_send_cmd("$POLCFGMSG,0,6,0"); /* 关闭 CLK */
+    vTaskDelay(pdMS_TO_TICKS(50U));
+
     board_uart_flush_rx(GNSS_UART);
     memset(&gnss_data, 0, sizeof(gnss_data));
 }

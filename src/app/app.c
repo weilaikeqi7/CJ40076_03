@@ -38,6 +38,11 @@ static app_geo_point_t target_far;
 static bool            target_published; /* 已进入 TARGET 显示 */
 static bool            round_was_active;
 
+/* 激光测距发起瞬间的姿态快照（锁定瞄准瞬间的真实空间朝向，消除收尾静默期间手抖误差） */
+static int32_t         trigger_heading_c01;
+static int32_t         trigger_pitch_c01;
+static bool            trigger_att_valid;
+
 static uint32_t batt_mv   = 4200U;
 static uint8_t  batt_lvl  = 4U;
 static bool     imu_on    = false;
@@ -249,31 +254,43 @@ static void on_measure_published(void)
 
     if (cur_mode == MEAS_MODE_MULTI || cur_mode == MEAS_MODE_TEST)
     {
-        /* 取测量完成附近的姿态/定位快照解算目标坐标 */
+        /* 优先使用开火/触发瞬间捕获的姿态快照，消除测距收尾静默期间手抖引起的方位角漂移 */
         app_geo_point_t self;
+        bool att_ok = trigger_att_valid ? trigger_att_valid : attitude_valid();
+        int32_t use_heading = trigger_att_valid ? trigger_heading_c01 : attitude_heading_c01();
+        int32_t use_pitch   = trigger_att_valid ? trigger_pitch_c01 : attitude_pitch_c01();
 
         target_near.valid = false;
         target_far.valid  = false;
 
-        if (res->near_valid && attitude_valid() && coord_get_self(&self))
+        /* 使用局部变量在栈上计算完成，绝不在共享变量上“边算边写” */
+        app_geo_point_t loc_near;
+        app_geo_point_t loc_far;
+        bool            loc_pub = false;
+        loc_near.valid = false;
+        loc_far.valid  = false;
+
+        if (res->near_valid && att_ok && coord_get_self(&self))
         {
-            target_published = true;
-            coord_compute_target(&self, (float)res->near_mm / 1000.0f, attitude_heading_c01(),
-                                 attitude_pitch_c01(), &target_near);
+            loc_pub = true;
+            coord_compute_target(&self, (float)res->near_mm / 1000.0f, use_heading,
+                                 use_pitch, &loc_near);
             if (res->far_valid)
             {
-                coord_compute_target(&self, (float)res->far_mm / 1000.0f, attitude_heading_c01(),
-                                     attitude_pitch_c01(), &target_far);
+                coord_compute_target(&self, (float)res->far_mm / 1000.0f, use_heading,
+                                     use_pitch, &loc_far);
             }
         }
-        else
-        {
-            /* 测距失败（或姿态/定位无效）：坐标/高程区回落本机显示，不显示横杠 */
-            target_published = false;
-        }
 
-        LOGI("app: multi published, near_valid=%d target_valid=%d\r\n", (int)res->near_valid,
-             (int)target_near.valid);
+        /* 临界区原子提交：耗时 < 0.2 微秒，确保读取端绝对不会读到“写了一半”的数据 */
+        taskENTER_CRITICAL();
+        target_near      = loc_near;
+        target_far       = loc_far;
+        target_published = loc_pub;
+        taskEXIT_CRITICAL();
+
+        LOGI("app: multi published, near_valid=%d target_valid=%d (snapshot_att=%d)\r\n", (int)res->near_valid,
+             (int)target_near.valid, (int)trigger_att_valid);
     }
 }
 
@@ -427,10 +444,13 @@ void app_task_sensor(void* argument)
             gnss_poll();
         }
 
-        /* 边沿检测：新一轮测距开始，清空上一轮 TARGET 状态 */
+        /* 边沿检测：新一轮测距开始，清空上一轮 TARGET 状态并瞬态锁定开火姿态快照 */
         if (measure_round_active() && !round_was_active)
         {
-            target_published = false;
+            target_published    = false;
+            trigger_att_valid   = attitude_valid();
+            trigger_heading_c01 = attitude_heading_c01();
+            trigger_pitch_c01   = attitude_pitch_c01();
         }
         round_was_active = measure_round_active();
 
@@ -455,20 +475,23 @@ void app_task_display(void* argument)
 
     while (1)
     {
-        /* 1. 100ms 构造显示状态并渲染 */
+        /* 1. 100ms 构造显示状态并渲染：临界区原子抓取快照（耗时 < 0.5 微秒） */
         memset(&disp, 0, sizeof(disp));
+        disp.self_valid  = coord_get_self(&disp.self);
+
+        taskENTER_CRITICAL();
         disp.mode        = cur_mode;
         disp.measuring   = measure_round_active();
         disp.result      = measure_get_result();
         disp.att_valid   = attitude_valid();
         disp.heading_c01 = attitude_heading_c01();
         disp.pitch_c01   = attitude_pitch_c01();
-        disp.self_valid  = coord_get_self(&disp.self);
         disp.target_valid= target_published;
         disp.target_near = target_near;
         disp.target_far  = target_far;
         disp.count       = store_get_count();
         disp.batt_level  = batt_lvl;
+        taskEXIT_CRITICAL();
 
         switch (calib_get_state())
         {
