@@ -121,23 +121,49 @@ static void shutdown_proc(void)
 
 static void battery_check(void)
 {
+    /* 滞环回差（mV）：防止电池开路电压在分档临界点抖动跳格 */
+    const uint32_t HYST_MV = 30U;
     batt_mv = board_battery_mv();
 
-    if (batt_mv >= APP_BATT_LVL4_MV)
+    if (batt_lvl == 0U)
     {
-        batt_lvl = 4U;
-    }
-    else if (batt_mv >= APP_BATT_LVL3_MV)
-    {
-        batt_lvl = 3U;
-    }
-    else if (batt_mv >= APP_BATT_LVL2_MV)
-    {
-        batt_lvl = 2U;
+        /* 初次采样无滞环初始化 */
+        if (batt_mv >= APP_BATT_LVL4_MV)
+        {
+            batt_lvl = 4U;
+        }
+        else if (batt_mv >= APP_BATT_LVL3_MV)
+        {
+            batt_lvl = 3U;
+        }
+        else if (batt_mv >= APP_BATT_LVL2_MV)
+        {
+            batt_lvl = 2U;
+        }
+        else
+        {
+            batt_lvl = 1U;
+        }
     }
     else
     {
-        batt_lvl = 1U;
+        /* 带回差的分档判定：升级需额外超出回差门限，降级保持原门限 */
+        if (batt_mv >= (APP_BATT_LVL4_MV + (batt_lvl < 4U ? HYST_MV : 0U)))
+        {
+            batt_lvl = 4U;
+        }
+        else if (batt_mv >= (APP_BATT_LVL3_MV + (batt_lvl < 3U ? HYST_MV : 0U)))
+        {
+            batt_lvl = 3U;
+        }
+        else if (batt_mv >= (APP_BATT_LVL2_MV + (batt_lvl < 2U ? HYST_MV : 0U)))
+        {
+            batt_lvl = 2U;
+        }
+        else
+        {
+            batt_lvl = 1U;
+        }
     }
 
     if (batt_mv < APP_BATT_LOW_OFF_MV)

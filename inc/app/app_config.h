@@ -56,14 +56,14 @@
 #define APP_GNSS_TIMEOUT_MS 2500U
 
 /* ------------------------------ 电池 ------------------------------ */
-/** 电量分档（mV）：4 段显示（框 + 3 格条），80% 与 100% 同为 4 格 */
-#define APP_BATT_LVL4_MV 3800U /* >= 3 格条全亮（4 格） */
-#define APP_BATT_LVL3_MV 3700U /* >= 2 格条 */
-#define APP_BATT_LVL2_MV 3600U /* >= 1 格条 */
-                               /* 以下 = 1 格（仅外框） */
+/** ICR18650 电量分档（mV）：4 段显示（框 + 3 格条） */
+#define APP_BATT_LVL4_MV 3950U /* >= 3950mV: 满电（框 + 3 格条，约75%~100%） */
+#define APP_BATT_LVL3_MV 3750U /* >= 3750mV: 2 格条（约45%~75%） */
+#define APP_BATT_LVL2_MV 3550U /* >= 3550mV: 1 格条（约15%~45%） */
+                               /* < 3550mV : 仅外框（约0%~15%） */
 
-/** 欠压关机阈值（mV） */
-#define APP_BATT_LOW_OFF_MV 2600U
+/** 欠压关机阈值（mV，保护单节 ICR18650 寿命，避免深度过放） */
+#define APP_BATT_LOW_OFF_MV 3000U
 /** 电池采样周期 */
 #define APP_BATT_CHECK_MS 500U
 
