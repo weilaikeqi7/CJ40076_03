@@ -328,13 +328,34 @@ static void draw_compass(int32_t heading_c01, bool valid)
     }
 }
 
-/** 电池 4 段（框 + 3 格条） */
+/** 电池 4 段（框 + 3 格条），level=1（低电空框）时以 1Hz 闪烁报警 */
 static void draw_battery(uint8_t level)
 {
-    lcd_symbol(LCD_SYM_BATTERY, true);
-    lcd_symbol(LCD_SYM_BAT_BAR1, level >= 2U);
-    lcd_symbol(LCD_SYM_BAT_BAR2, level >= 3U);
-    lcd_symbol(LCD_SYM_BAT_BAR3, level >= 4U);
+    static uint32_t flash_timer = 0U;
+    static bool     flash_state = true;
+
+    flash_timer += APP_DISP_RENDER_MS;
+    if (flash_timer >= 500U)
+    {
+        flash_timer = 0U;
+        flash_state = !flash_state;
+    }
+
+    /* level=1 为低电濒危状态，外框以 1Hz 闪烁（500ms亮/500ms灭） */
+    if (level <= 1U)
+    {
+        lcd_symbol(LCD_SYM_BATTERY, flash_state);
+        lcd_symbol(LCD_SYM_BAT_BAR1, false);
+        lcd_symbol(LCD_SYM_BAT_BAR2, false);
+        lcd_symbol(LCD_SYM_BAT_BAR3, false);
+    }
+    else
+    {
+        lcd_symbol(LCD_SYM_BATTERY, true);
+        lcd_symbol(LCD_SYM_BAT_BAR1, level >= 2U);
+        lcd_symbol(LCD_SYM_BAT_BAR2, level >= 3U);
+        lcd_symbol(LCD_SYM_BAT_BAR3, level >= 4U);
+    }
 }
 
 /* ------------------------------ 主渲染 ------------------------------ */
