@@ -75,7 +75,7 @@ extern "C" {
 /* 加热丝输出：PB6 = TIM4_CH1（默认复用，无需重映射），PWM 控制 */
 #define BOARD_HEATER_PORT GPIOB
 #define BOARD_HEATER_PIN  GPIO_PIN_6
-#define BOARD_HEATER_PWM_FREQ_HZ 1000U /* 加热丝 PWM 频率 */
+#define BOARD_HEATER_PWM_FREQ_HZ 10000U /* 加热丝 PWM 频率调整为 10kHz（降低低温高内阻电池纹波冲击） */
 
 /* 段码屏接口（详细驱动见 lcd.h） */
 #define BOARD_LCD_DISP_PORT GPIOA

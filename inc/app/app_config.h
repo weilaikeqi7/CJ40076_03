@@ -67,6 +67,24 @@
 /** 电池采样周期 */
 #define APP_BATT_CHECK_MS 500U
 
+/* ------------------------------ 极低温屏幕自适应加热 ------------------------------ */
+/** 加热闭环控制步进周期 */
+#define APP_HEATER_CTRL_PERIOD_MS   1000U
+/** 电池跌落自保门限（带载电压低于此值时强制切断加热，防止拉崩MCU与5V系统） */
+#define APP_HEATER_VBAT_SAFE_MV     3150U
+/** 极寒加热起步充裕电压门限 */
+#define APP_HEATER_VBAT_RICH_MV     3500U
+/** 控温目标门限（0.1℃）：T > 15℃ 彻底关闭；0℃~10℃ 保温；-15℃~0℃ 快速升温；<-15℃ 极寒预热 */
+#define APP_HEATER_TEMP_OFF_C10     150   /* 15.0℃ 停温切断 */
+#define APP_HEATER_TEMP_WARM_C10    0     /* 0.0℃ 保温门限 */
+#define APP_HEATER_TEMP_COLD_C10    (-150)/* -15.0℃ 极寒分界 */
+
+/** 各区间 PWM 占空比千分比 */
+#define APP_HEATER_DUTY_COLD_HIGH   400U  /* 40% (电压充裕时极寒快速升温) */
+#define APP_HEATER_DUTY_COLD_LOW    200U  /* 20% (电压较低时小电流温和预热唤醒) */
+#define APP_HEATER_DUTY_WARM_UP     350U  /* 35% (-15℃~0℃ 常规快速升温) */
+#define APP_HEATER_DUTY_KEEP_WARM   150U  /* 15% (0℃~15℃ 维持液晶响应) */
+
 /* ------------------------------ 计数 ------------------------------ */
 #define APP_COUNT_MAX 9999U
 

@@ -17,8 +17,14 @@
 extern "C" {
 #endif
 
-/** 应用入口（FreeRTOS 任务函数，内部不返回） */
-void app_run(void* argument);
+/** 4大并发业务任务函数 */
+void app_task_key(void* argument);     /* 优先级 4：按键扫描与即时人机交互响应 (10ms) */
+void app_task_sensor(void* argument);  /* 优先级 3：测距/姿态/GNSS轮询与目标坐标解算 */
+void app_task_display(void* argument); /* 优先级 2：屏幕渲染(100ms)与低温10kHz闭环温控(1s) */
+void app_task_power(void* argument);   /* 优先级 1：电池电量分档与3.0V欠压安全保护(500ms) */
+
+/** 系统启动与多任务初始化入口 */
+void app_system_init(void);
 
 #ifdef __cplusplus
 }
