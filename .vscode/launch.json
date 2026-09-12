@@ -11,7 +11,7 @@
             "device": "N32G4FRHE",
             "interface": "swd",
             "serverpath": "JLinkGDBServerCL.exe",
-            "gdbPath": "arm-none-eabi-gdb.exe",
+            "gdbPath": "gdb-multiarch.exe",
             "runToEntryPoint": "main",
             "preLaunchTask": "CMake: Build",
             "serverArgs": [
