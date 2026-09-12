@@ -185,14 +185,21 @@ static void heater_temperature_control_step(void)
     int16_t  temp_c10 = board_ntc_temperature_c10();
     uint16_t duty     = 0U;
 
-    /* 1. 电池跌落自保护：带载电压低于安全门限强制断开加热，保住主控供电不复位 */
+    /* 1. 安全保护：若 NTC 开路、脱落或短路（返回 BOARD_TEMP_INVALID），强制彻底切断加热，防止失控干烧 */
+    if (temp_c10 == BOARD_TEMP_INVALID)
+    {
+        board_heater_set_duty(0U);
+        return;
+    }
+
+    /* 2. 电池跌落自保护：带载电压低于安全门限强制断开加热，保住主控供电不复位 */
     if (batt_mv < APP_HEATER_VBAT_SAFE_MV)
     {
         board_heater_set_duty(0U);
         return;
     }
 
-    /* 2. 温度分级闭环调节 */
+    /* 3. 正常温度分级闭环调节 */
     if (temp_c10 >= APP_HEATER_TEMP_OFF_C10)
     {
         /* 超过 15.0℃：彻底关闭加热 */

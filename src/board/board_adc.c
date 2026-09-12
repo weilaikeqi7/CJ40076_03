@@ -111,10 +111,14 @@ float board_ntc_ohm(void)
 {
     uint32_t raw = board_adc_read_filtered(BOARD_NTC_ADC_CH);
 
-    /* 阈值设为 4085（对应约 -55℃ 以下才判开路，避免 -40℃ 下 3997 读数被误判） */
+    /* 阈值设为 4085（低于 -55℃ 才判开路，避免 -40℃ 下 3997 读数被误判） */
     if (raw >= 4085U)
     {
-        return 1e9f; /* NTC 开路 */
+        return -1.0f; /* 标记 NTC 开路 */
+    }
+    if (raw <= 10U)
+    {
+        return -2.0f; /* 标记 NTC 对地短路 */
     }
 
     /* Rntc = R10 * raw / (4096 - raw) */
@@ -126,9 +130,10 @@ int16_t board_ntc_temperature_c10(void)
     float r = board_ntc_ohm();
     float inv_t;
 
+    /* NTC 开路或短路异常，明确返回无效错误码，禁止计算错误负温 */
     if (r <= 0.0f)
     {
-        return 0;
+        return BOARD_TEMP_INVALID;
     }
 
     /* B 值法：1/T = 1/T0 + ln(R/R0)/B，T0 = 25℃ = 298.15K */

@@ -38,7 +38,10 @@ uint32_t board_battery_mv(void);
 /** NTC 当前阻值，单位 欧姆 */
 float board_ntc_ohm(void);
 
-/** NTC 温度，单位 0.1℃（B 值法换算，参数见上方宏） */
+/** NTC 传感器故障/开路/短路无效返回值（0.1℃），上层收到后必须强制关断加热防止干烧 */
+#define BOARD_TEMP_INVALID ((int16_t)-32768)
+
+/** NTC 温度，单位 0.1℃（B 值法换算，传感器异常返回 BOARD_TEMP_INVALID） */
 int16_t board_ntc_temperature_c10(void);
 
 #ifdef __cplusplus
