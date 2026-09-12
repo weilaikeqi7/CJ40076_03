@@ -173,6 +173,52 @@ static void battery_check(void)
     }
 }
 
+/* ------------------------------ 极低温屏幕自适应加热 ------------------------------ */
+
+static void heater_temperature_control_step(void)
+{
+    int16_t  temp_c10 = board_ntc_temperature_c10();
+    uint16_t duty     = 0U;
+
+    /* 1. 电池跌落自保护：带载电压低于安全门限强制断开加热，保住主控供电不复位 */
+    if (batt_mv < APP_HEATER_VBAT_SAFE_MV)
+    {
+        board_heater_set_duty(0U);
+        return;
+    }
+
+    /* 2. 温度分级闭环调节 */
+    if (temp_c10 >= APP_HEATER_TEMP_OFF_C10)
+    {
+        /* 超过 15.0℃：彻底关闭加热 */
+        duty = 0U;
+    }
+    else if (temp_c10 >= APP_HEATER_TEMP_WARM_C10)
+    {
+        /* 0.0℃ ~ 15.0℃：维持期，15% 占空比 */
+        duty = APP_HEATER_DUTY_KEEP_WARM;
+    }
+    else if (temp_c10 >= APP_HEATER_TEMP_COLD_C10)
+    {
+        /* -15.0℃ ~ 0.0℃：快速升温期，35% 占空比 */
+        duty = APP_HEATER_DUTY_WARM_UP;
+    }
+    else
+    {
+        /* <-15.0℃（极寒至 -40℃）：根据电池充裕程度自适应 */
+        if (batt_mv >= APP_HEATER_VBAT_RICH_MV)
+        {
+            duty = APP_HEATER_DUTY_COLD_HIGH; /* 电量充足：40% 快速破冰升温 */
+        }
+        else
+        {
+            duty = APP_HEATER_DUTY_COLD_LOW;  /* 电量中等：20% 温和预热唤醒，防止拉垮高内阻电池 */
+        }
+    }
+
+    board_heater_set_duty(duty);
+}
+
 /* ------------------------------ 按键分发 ------------------------------ */
 
 static void mode_switch_next(void)
@@ -311,48 +357,77 @@ static void startup_self_check(void)
 
 /* ------------------------------ 主任务 ------------------------------ */
 
-void app_run(void* argument)
-{
-    (void)argument;
-    uint32_t     render_ms = 0U;
-    uint32_t     batt_ms   = 0U;
-    disp_state_t disp;
 
+/* ========================================================================== */
+/*                       FreeRTOS 4 大专业并发任务实现                        */
+/* ========================================================================== */
+
+/* 系统启动与核心外设硬件自检 */
+void app_system_init(void)
+{
     rtt_log_init();
-    LOGI("sys: CJ40076 V3 boot\r\n");
+    LOGI("sys: CJ40076 4-Tasks RTOS boot\r\n");
 
     board_adc_init();
     store_init();
     attitude_load_offsets();
 
-    display_init();   /* LCD 上电 */
-    ranger_init();    /* 测距机常供电（含 1.6s 预热） */
-    gnss_init();      /* 初始化 USART1 后先断电（按需供电） */
+    display_init();   /* 屏幕上电初始化 */
+    ranger_init();    /* 测距机常开供电（含 1.6s 预热启动） */
+    gnss_init();      /* GNSS 初始化后按策略待机 */
     board_gnss_power(false);
-    startup_self_check(); /* JY901B 配置 + 角度帧自检 */
 
+    startup_self_check(); /* JY901B 配置 + 角度帧等待自检 */
     app_key_init();
 
-    /* 初始模式 = 单次：IMU/GNSS 按策略关闭 */
-    power_apply();
+    power_apply();    /* 初始模式供电策略 */
+}
+
+/* -------------------------------------------------------------------------- */
+/* Task 1: 人机交互与按键即时响应任务 (优先级 4, 10ms 周期)                  */
+/* -------------------------------------------------------------------------- */
+void app_task_key(void* argument)
+{
+    (void)argument;
+    LOGI("task: T_KEY started (Prio 4)\r\n");
 
     while (1)
     {
         app_key_event_t evt = app_key_scan();
-
         if (evt.evt != APP_KEY_EVT_NONE)
         {
             handle_key(&evt);
         }
+        vTaskDelay(pdMS_TO_TICKS(APP_KEY_SCAN_MS));
+    }
+}
 
+/* -------------------------------------------------------------------------- */
+/* Task 2: 传感器采集与空间三角经纬度投影解算任务 (优先级 3, 10ms 周期)      */
+/* -------------------------------------------------------------------------- */
+void app_task_sensor(void* argument)
+{
+    (void)argument;
+    LOGI("task: T_SENS started (Prio 3)\r\n");
+
+    while (1)
+    {
+        /* 1. 激光测距机：常开供电，始终轮询命令与回包状态机 */
         measure_poll();
-        attitude_update();
+
+        /* 2. 姿态传感器：仅在开启供电（多功能/测试/校准）时轮询更新 */
+        if (imu_on)
+        {
+            attitude_update();
+        }
+
+        /* 3. 卫星定位模块：仅在开启供电（多功能/测试）时轮询解析 NMEA */
         if (gnss_on)
         {
             gnss_poll();
         }
 
-        /* 新一轮开始：清坐标显示回 LOCAL */
+        /* 边沿检测：新一轮测距开始，清空上一轮 TARGET 状态 */
         if (measure_round_active() && !round_was_active)
         {
             target_published = false;
@@ -364,63 +439,84 @@ void app_run(void* argument)
             on_measure_published();
         }
 
-        /* 100ms 渲染 */
-        render_ms += APP_KEY_SCAN_MS;
-        if (render_ms >= APP_DISP_RENDER_MS)
+        vTaskDelay(pdMS_TO_TICKS(10U));
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Task 3: 屏幕画面刷新 (100ms) 与极低温自适应闭环加热 (1s) (优先级 2)       */
+/* -------------------------------------------------------------------------- */
+void app_task_display(void* argument)
+{
+    (void)argument;
+    uint32_t     heater_ms = 0U;
+    disp_state_t disp;
+    LOGI("task: T_DISP started (Prio 2)\r\n");
+
+    while (1)
+    {
+        /* 1. 100ms 构造显示状态并渲染 */
+        memset(&disp, 0, sizeof(disp));
+        disp.mode        = cur_mode;
+        disp.measuring   = measure_round_active();
+        disp.result      = measure_get_result();
+        disp.att_valid   = attitude_valid();
+        disp.heading_c01 = attitude_heading_c01();
+        disp.pitch_c01   = attitude_pitch_c01();
+        disp.self_valid  = coord_get_self(&disp.self);
+        disp.target_valid= target_published;
+        disp.target_near = target_near;
+        disp.target_far  = target_far;
+        disp.count       = store_get_count();
+        disp.batt_level  = batt_lvl;
+
+        switch (calib_get_state())
         {
-            render_ms = 0U;
+        case CALIB_PIT:
+            disp.page = DISP_PAGE_PIT;
+            break;
+        case CALIB_HIT:
+            disp.page = DISP_PAGE_HIT;
+            break;
+        case CALIB_HER:
+            disp.page = DISP_PAGE_HER;
+            break;
+        case CALIB_MAG:
+        case CALIB_ACC_BUSY:
+        case CALIB_ANG_BUSY:
+            disp.page = DISP_PAGE_FULL_ON;
+            break;
+        default:
+            disp.page = DISP_PAGE_NONE;
+            break;
+        }
+        disp.page_value_c01 = calib_page_value_c01();
 
-            memset(&disp, 0, sizeof(disp));
-            disp.mode      = cur_mode;
-            disp.measuring = measure_round_active();
-            disp.result    = measure_get_result();
+        display_render(&disp);
 
-            disp.att_valid   = attitude_valid();
-            disp.heading_c01 = attitude_heading_c01();
-            disp.pitch_c01   = attitude_pitch_c01();
-
-            disp.self_valid = coord_get_self(&disp.self);
-
-            disp.target_valid = target_published;
-            disp.target_near  = target_near;
-            disp.target_far   = target_far;
-
-            disp.count      = store_get_count();
-            disp.batt_level = batt_lvl;
-
-            switch (calib_get_state())
-            {
-            case CALIB_PIT:
-                disp.page = DISP_PAGE_PIT;
-                break;
-            case CALIB_HIT:
-                disp.page = DISP_PAGE_HIT;
-                break;
-            case CALIB_HER:
-                disp.page = DISP_PAGE_HER;
-                break;
-            case CALIB_MAG:
-            case CALIB_ACC_BUSY:
-            case CALIB_ANG_BUSY:
-                disp.page = DISP_PAGE_FULL_ON;
-                break;
-            default:
-                disp.page = DISP_PAGE_NONE;
-                break;
-            }
-            disp.page_value_c01 = calib_page_value_c01();
-
-            display_render(&disp);
+        /* 2. 1000ms 自适应闭环加热 */
+        heater_ms += APP_DISP_RENDER_MS;
+        if (heater_ms >= APP_HEATER_CTRL_PERIOD_MS)
+        {
+            heater_ms = 0U;
+            heater_temperature_control_step();
         }
 
-        /* 500ms 电池检查 */
-        batt_ms += APP_KEY_SCAN_MS;
-        if (batt_ms >= APP_BATT_CHECK_MS)
-        {
-            batt_ms = 0U;
-            battery_check();
-        }
+        vTaskDelay(pdMS_TO_TICKS(APP_DISP_RENDER_MS));
+    }
+}
 
-        vTaskDelay(pdMS_TO_TICKS(APP_KEY_SCAN_MS));
+/* -------------------------------------------------------------------------- */
+/* Task 4: 电池电压检测、1Hz闪烁监控与欠压紧急断电任务 (优先级 1, 500ms 周期) */
+/* -------------------------------------------------------------------------- */
+void app_task_power(void* argument)
+{
+    (void)argument;
+    LOGI("task: T_PWR started (Prio 1)\r\n");
+
+    while (1)
+    {
+        battery_check();
+        vTaskDelay(pdMS_TO_TICKS(APP_BATT_CHECK_MS));
     }
 }

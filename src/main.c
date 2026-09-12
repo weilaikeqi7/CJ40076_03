@@ -16,16 +16,30 @@
 
 int main(void)
 {
-    BaseType_t created;
+    BaseType_t ret;
 
     /* 最先初始化 GPIO 并保持电源（含电源保持脚置高） */
     board_gpio_init();
 
-    created = xTaskCreate(app_run, "APP", configMINIMAL_STACK_SIZE * 6U, NULL, tskIDLE_PRIORITY + 1U, NULL);
-    if (created != pdPASS)
-    {
-        Error_Handler();
-    }
+    /* 启动核心驱动并完成自检 */
+    app_system_init();
+
+    /* ---------------- 建立 4 大专业并发业务任务 ---------------- */
+    /* Task 1: 人机交互与按键即时响应 (最高优先级 4，确保长按与单击永不卡顿) */
+    ret = xTaskCreate(app_task_key, "T_KEY", configMINIMAL_STACK_SIZE * 2U, NULL, tskIDLE_PRIORITY + 4U, NULL);
+    if (ret != pdPASS) { Error_Handler(); }
+
+    /* Task 2: 传感器采集与空间三角经纬度投影解算 (优先级 3) */
+    ret = xTaskCreate(app_task_sensor, "T_SENS", configMINIMAL_STACK_SIZE * 3U, NULL, tskIDLE_PRIORITY + 3U, NULL);
+    if (ret != pdPASS) { Error_Handler(); }
+
+    /* Task 3: 屏幕画面刷新(100ms)与极低温10kHz自适应闭环温控(1s) (优先级 2) */
+    ret = xTaskCreate(app_task_display, "T_DISP", configMINIMAL_STACK_SIZE * 3U, NULL, tskIDLE_PRIORITY + 2U, NULL);
+    if (ret != pdPASS) { Error_Handler(); }
+
+    /* Task 4: 电池电压采样、1Hz闪烁监控与欠压紧急断电保护 (优先级 1) */
+    ret = xTaskCreate(app_task_power, "T_PWR", configMINIMAL_STACK_SIZE * 2U, NULL, tskIDLE_PRIORITY + 1U, NULL);
+    if (ret != pdPASS) { Error_Handler(); }
 
     vTaskStartScheduler();
     Error_Handler();
