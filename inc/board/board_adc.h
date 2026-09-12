@@ -30,6 +30,7 @@ void board_adc_init(void);
 
 /** 读取 ADC 原始值（0~4095），channel 取 BOARD_VBAT_ADC_CH / BOARD_NTC_ADC_CH */
 uint16_t board_adc_read_raw(uint8_t channel);
+uint16_t board_adc_read_filtered(uint8_t channel);
 
 /** 电池电压，单位 mV */
 uint32_t board_battery_mv(void);
