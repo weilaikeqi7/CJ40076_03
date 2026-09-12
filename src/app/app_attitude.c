@@ -79,12 +79,16 @@ int32_t attitude_heading_c01(void)
 
 void attitude_get_offsets(app_offsets_t* out)
 {
+    taskENTER_CRITICAL();
     *out = offsets;
+    taskEXIT_CRITICAL();
 }
 
 void attitude_set_offsets(const app_offsets_t* in)
 {
+    taskENTER_CRITICAL();
     offsets = *in;
+    taskEXIT_CRITICAL();
 }
 
 void attitude_load_offsets(void)
