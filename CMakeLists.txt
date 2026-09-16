@@ -64,7 +64,7 @@ set(PROJECT_SOURCES
     src/device/lcd.c
     src/device/lcd_map.c
     src/device/gnss.c
-    src/device/jy901b.c
+    src/device/mcp406.c
     src/device/ranger.c
     src/common/rtt_log.c
     src/app/app_store.c

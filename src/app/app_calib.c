@@ -1,6 +1,6 @@
 /**
  * @file app_calib.c
- * @brief 校准与补偿设置状态机实现
+ * @brief 校准与补偿设置状态机实现（适配 MCP-406-TTL 电子罗盘）
  */
 #include "app_calib.h"
 
@@ -8,8 +8,8 @@
 #include "app_config.h"
 #include "board.h"
 #include "board_uart.h"
-#include "jy901b.h"
 #include "lcd.h"
+#include "mcp406.h"
 #include "rtt_log.h"
 
 #include "FreeRTOS.h"
@@ -18,12 +18,28 @@
 static calib_state_t state = CALIB_NONE;
 static app_offsets_t work; /* 页内编辑中的补偿值（实时生效，保存才落 Flash） */
 
-/** 进入校准前确保 JY901B 已上电并等待启动（单次/连续模式下它可能断电） */
-static void ensure_imu_on(void)
+/* 磁场空间手动校准状态变量 */
+static uint16_t s_cal_cur_samples   = 1U;
+static uint16_t s_cal_total_samples = 12U;
+static float    s_cal_score         = -1.0f;
+static bool     s_cal_done          = false;
+
+/* 进入校准前确保电子罗盘已供电并处于就绪状态 */
+static void ensure_compass_on(void)
 {
     board_jy901b_power(true);
     vTaskDelay(pdMS_TO_TICKS(300U));
     board_uart_flush_rx(BOARD_UART_JY901B);
+}
+
+static bool is_score_normal(float score)
+{
+    /*
+     * 手册评分标准：
+     *   < 0.22 优，0.22~0.42 良，0.42~0.72 中，0.72~1.02 差
+     *   35/99.9/200/400 或 > 1.02 为异常得分
+     */
+    return (score > 0.0f && score <= 1.02f);
 }
 
 static int16_t* page_ptr(void)
@@ -98,51 +114,45 @@ bool calib_handle_key(const app_key_event_t* evt)
         {
             switch (evt->arg)
             {
-            case 4: /* 四击：HEr */
-                ensure_imu_on();
+            case 4: /* 四击：HEr 航向误差补偿页 */
+                ensure_compass_on();
                 page_enter(CALIB_HER);
                 return true;
-            case 5: /* 五击：磁场校准开始 */
-                ensure_imu_on();
+
+            case 5: /* 五击：启动磁场空间手动校准（校准页面不全显，保留俯仰与方位显示） */
+                ensure_compass_on();
+                s_cal_cur_samples   = 1U; /* 手册：发开始校准后罗盘自动采集第1组并输出编号1 */
+                s_cal_total_samples = 12U;
+                s_cal_score         = -1.0f;
+                s_cal_done          = false;
+
+                mcp406_start_mag_cal();
                 state = CALIB_MAG;
-                lcd_fill(); /* 校准期间 LCD 全显 */
-                lcd_flush();
-                jy901b_calib_mag_start();
-                LOGI("calib: mag calibration started\r\n");
+                /* 注意：磁场校准中不置 calib_mode=true，保持模式键多击检测生效以接收6击退出事件 */
+                LOGI("calib: mag space manual calib started (5-clicks), count=1\r\n");
                 return true;
-            case 6: /* 六击：仅磁场校准中有效（此处 NONE 态忽略） */
+
+            case 6: /* 六击：仅在磁场校准中有效，NONE 态忽略 */
                 return true;
-            case 7: /* 七击：PIt */
-                ensure_imu_on();
+
+            case 7: /* 七击：PIt 俯仰补偿页 */
+                ensure_compass_on();
                 page_enter(CALIB_PIT);
                 return true;
-            case 8: /* 八击：加速度校准（阻塞约 4.5s，先全显再阻塞） */
-                ensure_imu_on();
-                state = CALIB_ACC_BUSY;
-                lcd_fill();
-                lcd_flush();
-                jy901b_calib_accel();
-                state = CALIB_NONE;
-                LOGI("calib: accel calibration done\r\n");
+
+            /* 八击（加速度校准）与九击（角度校准）已彻底删除，不作响应 */
+
+            case 10: /* 十击：MCP-406 罗盘与主控补偿恢复出厂设置 */
+                ensure_compass_on();
+                mcp406_factory_reset();
+                work.pit_c01 = APP_DEFAULT_PIT_C01;
+                work.hit_c01 = APP_DEFAULT_HIT_C01;
+                work.her_c01 = APP_DEFAULT_HER_C01;
+                (void)store_save_offsets(&work);
+                attitude_set_offsets(&work);
+                LOGI("calib: factory reset done (10-clicks)\r\n");
                 return true;
-            case 9: /* 九击：角度校准（阻塞约 3.5s，先全显再阻塞） */
-                ensure_imu_on();
-                state = CALIB_ANG_BUSY;
-                lcd_fill();
-                lcd_flush();
-                jy901b_set_angle_ref();
-                state = CALIB_NONE;
-                LOGI("calib: angle reference done\r\n");
-                return true;
-            case 10: /* 十击：JY901B 恢复出厂设置（先全显再阻塞） */
-                ensure_imu_on();
-                state = CALIB_ANG_BUSY;
-                lcd_fill();
-                lcd_flush();
-                jy901b_factory_reset();
-                state = CALIB_NONE;
-                LOGI("calib: factory reset done\r\n");
-                return true;
+
             default:
                 break;
             }
@@ -150,19 +160,69 @@ bool calib_handle_key(const app_key_event_t* evt)
         return false;
     }
 
-    /* ---------- 磁场校准中：六击结束 ---------- */
+    /* ---------- 磁场空间手动校准中：短按电源键采样、6击退出 ---------- */
     if (state == CALIB_MAG)
     {
+        /* 1. 短按电源键：发送单次采样指令（未采样完成时有效） */
+        if ((evt->evt & APP_KEY_EVT_POWER_SHORT) != 0U)
+        {
+            const mcp406_cal_state_t* cs = mcp406_get_cal_state();
+            if (cs->score_valid)
+            {
+                s_cal_done  = true;
+                s_cal_score = cs->cal_score;
+            }
+
+            if (!s_cal_done)
+            {
+                mcp406_take_sample();
+                LOGI("calib: take sample key pressed\r\n");
+            }
+            return true;
+        }
+
+        /* 2. 六击：退出磁场校准页面 */
         if ((evt->evt & APP_KEY_EVT_MODE_CLICKS) != 0U && evt->arg == 6U)
         {
-            jy901b_calib_mag_end();
+            const mcp406_cal_state_t* cs = mcp406_get_cal_state();
+            if (cs->score_valid)
+            {
+                s_cal_done  = true;
+                s_cal_score = cs->cal_score;
+            }
+
+            if (!s_cal_done)
+            {
+                /* 未采样完成收到 6 击：发送校准停止指令，不发送保存指令 */
+                mcp406_stop_cal();
+                LOGI("calib: calib not finished on 6-clicks, stop cal and exit without save\r\n");
+            }
+            else
+            {
+                /* 采样完成收到 6 击：判定校准得分 */
+                if (is_score_normal(s_cal_score))
+                {
+                    /* 得分正常：发送保存指令至罗盘 EEPROM */
+                    mcp406_save();
+                    LOGI("calib: score normal (score=%d.%02d), save and exit\r\n",
+                         (int)s_cal_score, (int)((s_cal_score - (int)s_cal_score) * 100));
+                }
+                else
+                {
+                    /* 得分异常：不发送保存指令 */
+                    LOGI("calib: score abnormal (score=%d.%02d), exit without save\r\n",
+                         (int)s_cal_score, (int)((s_cal_score - (int)s_cal_score) * 100));
+                }
+            }
+
             state = CALIB_NONE;
-            LOGI("calib: mag calibration stopped, save command sent\r\n");
+            return true;
         }
-        return true; /* 校准中吞掉所有按键（长按关机除外，app 层先判） */
+
+        return true; /* 磁场校准中消费其他按键（长按关机除外，app层先判） */
     }
 
-    /* ---------- 设置页（PIt/HIt/HEr） ---------- */
+    /* ---------- 补偿设置页（PIt/HIt/HEr） ---------- */
     if ((evt->evt & APP_KEY_EVT_BOTH_LONG) != 0U)
     {
         if (state == CALIB_PIT)
@@ -189,7 +249,7 @@ bool calib_handle_key(const app_key_event_t* evt)
         return true;
     }
 
-    return true; /* 设置页内消费所有按键 */
+    return true;
 }
 
 calib_state_t calib_get_state(void)
@@ -213,5 +273,36 @@ bool calib_mag_in_progress(void)
 
 bool calib_page_active(void)
 {
-    return state >= CALIB_PIT && state <= CALIB_HER;
+    return state >= CALIB_PIT && state <= CALIB_MAG;
+}
+
+uint16_t calib_mag_cur_samples(void)
+{
+    const mcp406_cal_state_t* cs = mcp406_get_cal_state();
+    if (cs->sample_count > s_cal_cur_samples)
+    {
+        s_cal_cur_samples = (uint16_t)cs->sample_count;
+    }
+    return s_cal_cur_samples;
+}
+
+uint16_t calib_mag_total_samples(void)
+{
+    return s_cal_total_samples;
+}
+
+bool calib_mag_get_score(float* out_score)
+{
+    const mcp406_cal_state_t* cs = mcp406_get_cal_state();
+    if (cs->score_valid)
+    {
+        s_cal_done  = true;
+        s_cal_score = cs->cal_score;
+    }
+
+    if (s_cal_done && out_score != NULL)
+    {
+        *out_score = s_cal_score;
+    }
+    return s_cal_done;
 }

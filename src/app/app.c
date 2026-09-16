@@ -15,7 +15,7 @@
 #include "board_adc.h"
 #include "board_uart.h"
 #include "gnss.h"
-#include "jy901b.h"
+#include "mcp406.h"
 #include "lcd.h"
 #include "ranger.h"
 #include "rtt_log.h"
@@ -361,22 +361,22 @@ static void startup_self_check(void)
 {
     uint32_t start = xTaskGetTickCount();
 
-    /* JY901B：上电 + 配置（5Hz、仅角度帧、垂直安装） */
-    jy901b_init(JY901B_RATE_5HZ, (uint16_t)JY901B_RSW_ANGLE);
+    /* MCP-406：上电 + 配置（Y轴朝下180°、输出方位/俯仰/横滚、10Hz广播输出） */
+    mcp406_init();
     imu_on = true;
 
-    /* 角度帧自检：3s 内等到第一帧 */
+    /* 角度帧自检：3s 内等到第一帧广播角度 */
     while ((xTaskGetTickCount() - start) < pdMS_TO_TICKS(3000U))
     {
         attitude_update();
         if (attitude_valid())
         {
-            LOGI("sys: JY901B angle frame self-check OK\r\n");
+            LOGI("sys: MCP-406 angle frame self-check OK\r\n");
             return;
         }
         vTaskDelay(pdMS_TO_TICKS(20U));
     }
-    LOGI("sys: JY901B self-check FAILED (no angle frame)\r\n");
+    LOGI("sys: MCP-406 self-check FAILED (no angle frame)\r\n");
 }
 
 /* ------------------------------ 主任务 ------------------------------ */
@@ -504,23 +504,26 @@ void app_task_display(void* argument)
         {
         case CALIB_PIT:
             disp.page = DISP_PAGE_PIT;
+            disp.page_value_c01 = calib_page_value_c01();
             break;
         case CALIB_HIT:
             disp.page = DISP_PAGE_HIT;
+            disp.page_value_c01 = calib_page_value_c01();
             break;
         case CALIB_HER:
             disp.page = DISP_PAGE_HER;
+            disp.page_value_c01 = calib_page_value_c01();
             break;
         case CALIB_MAG:
-        case CALIB_ACC_BUSY:
-        case CALIB_ANG_BUSY:
-            disp.page = DISP_PAGE_FULL_ON;
+            disp.page              = DISP_PAGE_MAG_CAL;
+            disp.cal_cur_samples   = calib_mag_cur_samples();
+            disp.cal_total_samples = calib_mag_total_samples();
+            disp.cal_score_valid   = calib_mag_get_score(&disp.cal_score);
             break;
         default:
             disp.page = DISP_PAGE_NONE;
             break;
         }
-        disp.page_value_c01 = calib_page_value_c01();
 
         display_render(&disp);
 

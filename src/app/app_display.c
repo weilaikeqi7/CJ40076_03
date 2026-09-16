@@ -400,7 +400,56 @@ void display_render(const disp_state_t* s)
 
     lcd_clear();
 
-    /* ---------------- 校准页（PIt/HIt/HEr） ---------------- */
+    /* ---------------- 磁场空间手动校准页（非全显） ---------------- */
+    if (s->page == DISP_PAGE_MAG_CAL)
+    {
+        /* 1. 顶行显示实时方位角 + 罗盘 */
+        uint32_t h_x1 = (uint32_t)s->heading_c01 / 10U;
+        draw_x3_1(LCD_HISEG_HEADING, 1, LCD_DOT_TOP, h_x1, s->att_valid);
+        lcd_symbol(LCD_DEG_TOP, s->att_valid);
+        draw_compass(s->heading_c01, s->att_valid);
+
+        /* 2. 中行显示实时俯仰角 */
+        draw_pitch(s->pitch_c01, s->att_valid);
+
+        /* 3. 第二行距离区：未完成显示横杠，采样点数完成返回得分时显示校准得分 */
+        if (!s->cal_score_valid)
+        {
+            draw_x4_1(LCD_HISEG_DIST, 4, LCD_SYM_DOT_ROW2, 0U, false);
+        }
+        else
+        {
+            if (s->cal_score >= 0.0f && s->cal_score < 10.0f)
+            {
+                uint32_t sc100 = (uint32_t)(s->cal_score * 100.0f + 0.5f);
+                put_digit(4, (int8_t)(sc100 / 100U));
+                lcd_symbol(LCD_SYM_DOT_ROW2, true);
+                put_digit(5, (int8_t)((sc100 / 10U) % 10U));
+                put_digit(6, (int8_t)(sc100 % 10U));
+                put_digit(7, -1);
+            }
+            else
+            {
+                uint32_t sc10 = (uint32_t)(s->cal_score * 10.0f + 0.5f);
+                draw_x4_1(LCD_HISEG_DIST, 4, LCD_SYM_DOT_ROW2, sc10, true);
+            }
+        }
+
+        /* 4. 底行高程区：显示已采样点数 */
+        lcd_print_uint(17, 4, s->cal_cur_samples, false);
+        lcd_symbol(LCD_SYM_UNIT_H, true);
+
+        /* 5. 底行测距计数区：显示总采样点数（默认 12） */
+        lcd_print_uint(21, 4, s->cal_total_samples, false);
+
+        /* 6. 电池电量与常驻指示 */
+        draw_battery(s->batt_level);
+
+        lcd_flush();
+        return;
+    }
+
+    /* ---------------- 补偿设置页（PIt/HIt/HEr） ---------------- */
     if (s->page != DISP_PAGE_NONE)
     {
         /* 补偿值显示在高程区（绝对值，0.1°） */
