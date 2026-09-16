@@ -157,15 +157,15 @@ void board_ranger_power(bool on)
     }
 }
 
-void board_jy901b_power(bool on)
+void board_compass_power(bool on)
 {
     if (on)
     {
-        BOARD_PWR_JY901B_PORT->PBSC = BOARD_PWR_JY901B_PIN;
+        BOARD_PWR_COMPASS_PORT->PBSC = BOARD_PWR_COMPASS_PIN;
     }
     else
     {
-        BOARD_PWR_JY901B_PORT->PBC = BOARD_PWR_JY901B_PIN;
+        BOARD_PWR_COMPASS_PORT->PBC = BOARD_PWR_COMPASS_PIN;
     }
 }
 

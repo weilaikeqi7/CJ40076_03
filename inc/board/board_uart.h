@@ -17,11 +17,13 @@ extern "C" {
 
 typedef enum
 {
-    BOARD_UART_GNSS = 0, /* USART1 PA9/PA10，默认 9600 */
-    BOARD_UART_JY901B,   /* USART2 PA2/PA3，默认 9600 */
-    BOARD_UART_RANGER,   /* UART6  PB0/PB1（RMP3），默认 115200 */
+    BOARD_UART_GNSS = 0, /* USART1 PA9/PA10 */
+    BOARD_UART_JY901B,   /* USART2 PA2/PA3（电子罗盘） */
+    BOARD_UART_RANGER,   /* UART6  PB0/PB1（RMP3） */
     BOARD_UART_NUM
 } board_uart_t;
+
+#define BOARD_UART_COMPASS BOARD_UART_JY901B /* 电子罗盘通道标准别名 */
 
 /**
  * @brief 初始化串口并使能接收中断（RXDNE -> 环形缓冲）。

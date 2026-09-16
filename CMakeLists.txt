@@ -68,6 +68,8 @@ set(PROJECT_SOURCES
     src/device/ranger.c
     src/common/rtt_log.c
     src/app/app_store.c
+    src/app/app_power.c
+    src/app/app_thermal.c
     src/app/app_key.c
     src/app/app_attitude.c
     src/app/app_coord.c
