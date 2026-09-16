@@ -18,6 +18,9 @@ int main(void)
 {
     BaseType_t ret;
 
+    /* 配置中断优先级组 */
+    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_4);
+
     /* 最先初始化 GPIO 并保持电源（含电源保持脚置高） */
     board_gpio_init();
 
