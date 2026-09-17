@@ -6,10 +6,8 @@
 
 #include "app_attitude.h"
 #include "app_config.h"
-#include "board.h"
-#include "board_uart.h"
-#include "lcd.h"
-#include "mcp406.h"
+#include "dev_compass.h"
+#include "dev_display.h"
 #include "rtt_log.h"
 
 #include "FreeRTOS.h"
@@ -27,9 +25,7 @@ static bool     s_cal_done          = false;
 /* 进入校准前确保电子罗盘已供电并处于就绪状态 */
 static void ensure_compass_on(void)
 {
-    board_jy901b_power(true);
-    vTaskDelay(pdMS_TO_TICKS(300U));
-    board_uart_flush_rx(BOARD_UART_JY901B);
+    mcp406_power_ctl(true);
 }
 
 static bool is_score_normal(float score)

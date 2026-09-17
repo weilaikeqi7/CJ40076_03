@@ -8,8 +8,8 @@
 #include "app_display.h"
 
 #include "app_config.h"
-#include "lcd.h"
-#include "lcd_map.h"
+#include "dev_display.h"
+#include "dev_display_map.h"
 
 #include <string.h>
 

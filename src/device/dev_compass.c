@@ -1,11 +1,11 @@
 /**
- * @file mcp406.c
- * @brief MCP-406-TTL 三维高精度电子罗盘驱动实现（USART2 38400 8N1）
+ * @file dev_compass.c
+ * @brief MCP-406-TTL 三维高精度电子罗盘设备驱动实现（USART2 38400 8N1）
  */
-#include "mcp406.h"
+#include "dev_compass.h"
 
-#include "board.h"
-#include "board_uart.h"
+#include "bsp_power.h"
+#include "bsp_uart.h"
 #include "rtt_log.h"
 
 #include "FreeRTOS.h"
@@ -13,7 +13,7 @@
 
 #include <string.h>
 
-#define MCP406_UART       BOARD_UART_JY901B
+#define MCP406_UART       BSP_UART_COMPASS
 #define MCP406_FRAME_MAX  128U
 
 static mcp406_data_t      s_mcp406_data;
@@ -57,7 +57,7 @@ static float parse_float_be(const uint8_t* p)
 
 static void send_cmd(const uint8_t* cmd, size_t len)
 {
-    board_uart_write(MCP406_UART, cmd, len);
+    bsp_uart_write(MCP406_UART, cmd, len);
 }
 
 /* ----------------------------- 帧接收与解析 ----------------------------- */
@@ -143,7 +143,7 @@ void mcp406_poll(void)
     static uint16_t rx_idx = 0U;
     uint8_t         byte;
 
-    while (board_uart_read(MCP406_UART, &byte, 1U) == 1U)
+    while (bsp_uart_read(MCP406_UART, &byte, 1U) == 1U)
     {
         rx_buf[rx_idx++] = byte;
 
@@ -200,11 +200,11 @@ void mcp406_init(void)
     static const uint8_t CMD_START_CONT[]  = {0x00, 0x05, 0x15, 0xBD, 0x61}; /* 10Hz 广播输出 */
     static const uint8_t CMD_SAVE[]        = {0x00, 0x05, 0x09, 0x6E, 0xDC}; /* 保存至 EEPROM */
 
-    board_jy901b_power(true);
-    board_uart_init(MCP406_UART, 38400U); /* MCP-406 默认 38400 波特率 */
+    bsp_pwr_compass(true);
+    bsp_uart_init(MCP406_UART, 38400U); /* MCP-406 默认 38400 波特率 */
 
     vTaskDelay(pdMS_TO_TICKS(350U)); /* 等待罗盘上电初始化完成 */
-    board_uart_flush_rx(MCP406_UART);
+    bsp_uart_flush_rx(MCP406_UART);
 
     /* 1. 设置安装方式为：Y 轴朝下 180° */
     send_cmd(CMD_SET_MOUNT, sizeof(CMD_SET_MOUNT));
@@ -222,7 +222,7 @@ void mcp406_init(void)
     send_cmd(CMD_START_CONT, sizeof(CMD_START_CONT));
     vTaskDelay(pdMS_TO_TICKS(50U));
 
-    board_uart_flush_rx(MCP406_UART);
+    bsp_uart_flush_rx(MCP406_UART);
     memset(&s_mcp406_data, 0, sizeof(s_mcp406_data));
     memset(&s_cal_state, 0, sizeof(s_cal_state));
     s_cal_state.cal_score = -1.0f;
@@ -230,12 +230,12 @@ void mcp406_init(void)
 
 void mcp406_power_ctl(bool on)
 {
-    board_compass_power(on);
+    bsp_pwr_compass(on);
     if (on)
     {
         /* 重新上电后等待模块启动，刷新接收缓存 */
         vTaskDelay(pdMS_TO_TICKS(300U));
-        board_uart_flush_rx(MCP406_UART);
+        bsp_uart_flush_rx(MCP406_UART);
     }
 }
 

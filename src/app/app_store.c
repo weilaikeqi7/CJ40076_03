@@ -5,12 +5,11 @@
 #include "app_store.h"
 
 #include "app_config.h"
-#include "board_flash.h"
+#include "dev_storage.h"
 #include "rtt_log.h"
 
 #include <string.h>
 
-#define STORE_PAGE_ADDR 0x0807F800U /* 512KB Flash 最后一页（2KB） */
 #define STORE_MAGIC     0x43004A56UL /* "CJ"V 参数区标识 */
 
 typedef struct
@@ -52,7 +51,7 @@ static void store_defaults(void)
     cache_offsets.her_c01  = APP_DEFAULT_HER_C01;
 }
 
-/** 整页擦除 + 写入当前缓存 */
+/** 将当前参数序列化并提交写入存储设备 */
 static bool store_commit(void)
 {
     store_record_t rec;
@@ -65,19 +64,15 @@ static bool store_commit(void)
     rec.reserved = 0U;
     rec.crc16    = crc16_ccitt((const uint8_t*)&rec, offsetof(store_record_t, crc16));
 
-    if (!board_flash_erase_page(STORE_PAGE_ADDR))
-    {
-        return false;
-    }
-
-    return board_flash_write_words(STORE_PAGE_ADDR, (const uint32_t*)&rec, sizeof(rec) / sizeof(uint32_t));
+    return dev_storage_write_record(&rec, sizeof(rec));
 }
 
 void store_init(void)
 {
     store_record_t rec;
 
-    board_flash_read(STORE_PAGE_ADDR, &rec, sizeof(rec));
+    dev_storage_init();
+    dev_storage_read(0U, &rec, sizeof(rec));
 
     if (rec.magic == STORE_MAGIC &&
         rec.crc16 == crc16_ccitt((const uint8_t*)&rec, offsetof(store_record_t, crc16)))

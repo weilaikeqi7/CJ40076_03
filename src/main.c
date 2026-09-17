@@ -1,7 +1,8 @@
 #include "main.h"
 
 #include "app.h"
-#include "board.h"
+#include "bsp_gpio.h"
+#include "bsp_power.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -21,8 +22,9 @@ int main(void)
     /* 配置中断优先级组 */
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_4);
 
-    /* 最先初始化 GPIO 并保持电源（含电源保持脚置高） */
-    board_gpio_init();
+    /* 最先初始化 GPIO 并锁存电源保持，默认关闭各外设供电 */
+    bsp_gpio_init();
+    bsp_power_init();
 
     /* 启动核心驱动并完成自检 */
     app_system_init();

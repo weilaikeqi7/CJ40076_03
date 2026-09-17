@@ -13,12 +13,11 @@
 #include "app_power.h"
 #include "app_store.h"
 #include "app_thermal.h"
-#include "board.h"
-#include "board_adc.h"
-#include "gnss.h"
-#include "lcd.h"
-#include "mcp406.h"
-#include "ranger.h"
+#include "bsp_adc.h"
+#include "dev_compass.h"
+#include "dev_display.h"
+#include "dev_gnss.h"
+#include "dev_ranger.h"
 #include "rtt_log.h"
 
 #include "FreeRTOS.h"
@@ -226,7 +225,7 @@ void app_system_init(void)
     rtt_log_init();
     LOGI("sys: CJ40076 System Boot\r\n");
 
-    board_adc_init();
+    bsp_adc_init();
     store_init();
     app_power_init();   /* 初始化电源与电池状态 */
     app_thermal_init(); /* 初始化热管理 */

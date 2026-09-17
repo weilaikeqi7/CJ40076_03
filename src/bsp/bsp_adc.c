@@ -1,10 +1,10 @@
 /**
- * @file board_adc.c
+ * @file bsp_adc.c
  * @brief 电池电压 / NTC 温度采样实现（ADC1 软件触发 + MR 稳压切换 + 去极值均值滤波）
  */
-#include "board_adc.h"
+#include "bsp_adc.h"
 
-#include "board.h"
+#include "n32g4fr.h"
 
 #include <math.h>
 
@@ -14,7 +14,7 @@
  */
 #define ADCIP_CTRL (*(volatile uint32_t*)(0x40020800U + 0x60U))
 
-void board_adc_init(void)
+void bsp_adc_init(void)
 {
     GPIO_InitType gpio_init;
     ADC_InitType  adc_init;
@@ -23,7 +23,7 @@ void board_adc_init(void)
     /* PA0 / PA1 模拟输入 */
     RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOA, ENABLE);
     GPIO_InitStruct(&gpio_init);
-    gpio_init.Pin       = BOARD_VBAT_ADC_PIN | BOARD_NTC_ADC_PIN;
+    gpio_init.Pin       = BSP_VBAT_ADC_PIN | BSP_NTC_ADC_PIN;
     gpio_init.GPIO_Mode = GPIO_Mode_AIN;
     GPIO_InitPeripheral(GPIOA, &gpio_init);
 
@@ -58,7 +58,7 @@ void board_adc_init(void)
     }
 }
 
-uint16_t board_adc_read_raw(uint8_t channel)
+uint16_t bsp_adc_read_raw(uint8_t channel)
 {
     /* 采用 239.5 周期采样，适配 -40°C 下 400kΩ 高阻抗热敏电阻充分充放电 */
     ADC_ConfigRegularChannel(ADC1, channel, 1, ADC_SAMP_TIME_239CYCLES5);
@@ -74,7 +74,7 @@ uint16_t board_adc_read_raw(uint8_t channel)
 }
 
 /* 6点去极值平均滤波：剔除1个最大值和1个最小值，中间4点求均值，彻底消除瞬态尖峰毛刺 */
-uint16_t board_adc_read_filtered(uint8_t channel)
+uint16_t bsp_adc_read_filtered(uint8_t channel)
 {
     uint16_t samples[6];
     uint32_t sum = 0U;
@@ -84,7 +84,7 @@ uint16_t board_adc_read_filtered(uint8_t channel)
 
     for (i = 0U; i < 6U; i++)
     {
-        samples[i] = board_adc_read_raw(channel);
+        samples[i] = bsp_adc_read_raw(channel);
         if (samples[i] > max)
         {
             max = samples[i];
@@ -99,17 +99,17 @@ uint16_t board_adc_read_filtered(uint8_t channel)
     return (uint16_t)((sum - max - min) / 4U);
 }
 
-uint32_t board_battery_mv(void)
+uint32_t bsp_battery_mv(void)
 {
-    uint32_t raw = board_adc_read_filtered(BOARD_VBAT_ADC_CH);
+    uint32_t raw = bsp_adc_read_filtered(BSP_VBAT_ADC_CH);
 
     /* VBAT = raw * Vref / 4096 * (20K + 10K) / 10K */
-    return raw * BOARD_ADC_VREF_MV * BOARD_VBAT_DIVIDER_NUM / (BOARD_ADC_FULL * BOARD_VBAT_DIVIDER_DEN);
+    return raw * BSP_ADC_VREF_MV * BSP_VBAT_DIVIDER_NUM / (BSP_ADC_FULL * BSP_VBAT_DIVIDER_DEN);
 }
 
-float board_ntc_ohm(void)
+float bsp_ntc_ohm(void)
 {
-    uint32_t raw = board_adc_read_filtered(BOARD_NTC_ADC_CH);
+    uint32_t raw = bsp_adc_read_filtered(BSP_NTC_ADC_CH);
 
     /* 阈值设为 4085（低于 -55℃ 才判开路，避免 -40℃ 下 3997 读数被误判） */
     if (raw >= 4085U)
@@ -122,21 +122,21 @@ float board_ntc_ohm(void)
     }
 
     /* Rntc = R10 * raw / (4096 - raw) */
-    return BOARD_NTC_PULLUP_OHM * (float)raw / (float)(BOARD_ADC_FULL - raw);
+    return BSP_NTC_PULLUP_OHM * (float)raw / (float)(BSP_ADC_FULL - raw);
 }
 
-int16_t board_ntc_temperature_c10(void)
+int16_t bsp_ntc_temperature_c10(void)
 {
-    float r = board_ntc_ohm();
+    float r = bsp_ntc_ohm();
     float inv_t;
 
     /* NTC 开路或短路异常，明确返回无效错误码，禁止计算错误负温 */
     if (r <= 0.0f)
     {
-        return BOARD_TEMP_INVALID;
+        return BSP_TEMP_INVALID;
     }
 
     /* B 值法：1/T = 1/T0 + ln(R/R0)/B，T0 = 25℃ = 298.15K */
-    inv_t = (1.0f / 298.15f) + (logf(r / BOARD_NTC_R25_OHM) / BOARD_NTC_BETA);
+    inv_t = (1.0f / 298.15f) + (logf(r / BSP_NTC_R25_OHM) / BSP_NTC_BETA);
     return (int16_t)((1.0f / inv_t - 273.15f) * 10.0f);
 }

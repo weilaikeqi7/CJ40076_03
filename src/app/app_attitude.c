@@ -5,7 +5,7 @@
 #include "app_attitude.h"
 
 #include "app_config.h"
-#include "mcp406.h"
+#include "dev_compass.h"
 
 #include "FreeRTOS.h"
 #include "task.h"

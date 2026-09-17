@@ -1,14 +1,14 @@
 /**
- * @file board_flash.c
+ * @file bsp_flash.c
  * @brief N32G4FR 片上 Flash 扇区擦除与编程底层驱动实现
  */
-#include "board_flash.h"
+#include "bsp_flash.h"
 
 #include "n32g4fr.h"
 
 #include <string.h>
 
-void board_flash_read(uint32_t addr, void* buf, size_t len)
+void bsp_flash_read(uint32_t addr, void* buf, size_t len)
 {
     if (buf != NULL && len > 0U)
     {
@@ -16,7 +16,7 @@ void board_flash_read(uint32_t addr, void* buf, size_t len)
     }
 }
 
-bool board_flash_erase_page(uint32_t page_addr)
+bool bsp_flash_erase_page(uint32_t page_addr)
 {
     FLASH_STS status;
 
@@ -27,7 +27,7 @@ bool board_flash_erase_page(uint32_t page_addr)
     return (status == FLASH_COMPL);
 }
 
-bool board_flash_write_words(uint32_t addr, const uint32_t* words, size_t word_count)
+bool bsp_flash_write_words(uint32_t addr, const uint32_t* words, size_t word_count)
 {
     size_t i;
     FLASH_STS status;

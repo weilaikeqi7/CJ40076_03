@@ -5,7 +5,7 @@
 #include "app_measure.h"
 
 #include "app_config.h"
-#include "ranger.h"
+#include "dev_ranger.h"
 #include "rtt_log.h"
 
 #include "FreeRTOS.h"

@@ -8,12 +8,12 @@
 #include "app_config.h"
 #include "app_store.h"
 #include "app_thermal.h"
-#include "board.h"
-#include "board_adc.h"
-#include "gnss.h"
-#include "lcd.h"
-#include "mcp406.h"
-#include "ranger.h"
+#include "bsp_adc.h"
+#include "bsp_gpio.h"
+#include "dev_compass.h"
+#include "dev_display.h"
+#include "dev_gnss.h"
+#include "dev_ranger.h"
 #include "rtt_log.h"
 
 #include "FreeRTOS.h"
@@ -24,7 +24,7 @@ static uint8_t  s_batt_lvl = 4U;
 
 void app_power_init(void)
 {
-    s_batt_mv  = board_battery_mv();
+    s_batt_mv  = bsp_battery_mv();
     s_batt_lvl = 0U; /* 置 0 使首次 check 时执行无滞环快速初始化 */
     app_power_check();
 }
@@ -33,7 +33,7 @@ void app_power_check(void)
 {
     /* 滞环回差（mV）：防止电池开路电压在分档临界点抖动跳格 */
     const uint32_t HYST_MV = 30U;
-    uint32_t mv = board_battery_mv();
+    uint32_t mv = bsp_battery_mv();
     uint8_t  lvl;
 
     taskENTER_CRITICAL();
@@ -117,7 +117,7 @@ void app_power_shutdown(void)
     gnss_power_ctl(false);      /* 卫星定位下电 */
     app_thermal_off();          /* 加热丝强制切断 */
 
-    board_power_hold(false);    /* 释放 PB12，切断整机总电源 */
+    bsp_power_hold_ctrl(false); /* 释放 PB12，切断整机总电源 */
     while (1)
     {
     }

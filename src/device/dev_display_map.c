@@ -1,12 +1,14 @@
 /**
- * @file lcd_map.c
+ * @file dev_display_map.c
  * @brief P1237 段码屏段码映射表（依据屏厂真值表 P1237 / 238 段）
  *
  * 说明：真值表中 Y90 与 Y105 均标注为 "6F"，经确认 Y90=6G、Y105=6F。
  */
-#include "lcd_map.h"
+#include "dev_display_map.h"
+#include "dev_display.h"
 
-#include "lcd.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 /** 数码管位 -> Y 引脚，列序 {A, B, C, D, E, F, G} */
 const uint8_t lcd_digit_map[LCD_DIGIT_COUNT][7] = {

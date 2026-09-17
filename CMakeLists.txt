@@ -58,16 +58,28 @@ set(PROJECT_SOURCES
     src/main.c
     src/n32g4fr_it.c
     src/syscalls.c
-    src/board/board.c
-    src/board/board_adc.c
-    src/board/board_uart.c
-    src/board/board_flash.c
-    src/device/lcd.c
-    src/device/lcd_map.c
-    src/device/gnss.c
-    src/device/mcp406.c
-    src/device/ranger.c
     src/common/rtt_log.c
+
+    # BSP 驱动层
+    src/bsp/bsp_gpio.c
+    src/bsp/bsp_power.c
+    src/bsp/bsp_uart.c
+    src/bsp/bsp_adc.c
+    src/bsp/bsp_pwm.c
+    src/bsp/bsp_timer.c
+    src/bsp/bsp_flash.c
+
+    # 设备层
+    src/device/dev_ranger.c
+    src/device/dev_compass.c
+    src/device/dev_gnss.c
+    src/device/dev_display.c
+    src/device/dev_display_map.c
+    src/device/dev_key.c
+    src/device/dev_storage.c
+    src/device/dev_heater.c
+
+    # 应用层
     src/app/app_store.c
     src/app/app_power.c
     src/app/app_thermal.c
@@ -112,7 +124,7 @@ target_compile_definitions(${APP_TARGET} PRIVATE
 
 target_include_directories(${APP_TARGET} PRIVATE
     inc
-    inc/board
+    inc/bsp
     inc/device
     inc/app
     inc/common

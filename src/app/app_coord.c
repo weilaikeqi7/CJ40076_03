@@ -5,7 +5,7 @@
 #include "app_coord.h"
 
 #include "app_config.h"
-#include "gnss.h"
+#include "dev_gnss.h"
 
 #include "FreeRTOS.h"
 #include "task.h"

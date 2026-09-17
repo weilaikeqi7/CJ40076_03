@@ -5,36 +5,36 @@
 #include "app_thermal.h"
 
 #include "app_config.h"
-#include "board.h"
-#include "board_adc.h"
+#include "bsp_adc.h"
+#include "dev_heater.h"
 #include "rtt_log.h"
 
 void app_thermal_init(void)
 {
-    board_heater_set_duty(0U);
+    dev_heater_init();
 }
 
 void app_thermal_off(void)
 {
-    board_heater_set_duty(0U);
+    dev_heater_off();
 }
 
 void app_thermal_step(uint32_t vbat_mv)
 {
-    int16_t  temp_c10 = board_ntc_temperature_c10();
+    int16_t  temp_c10 = bsp_ntc_temperature_c10();
     uint16_t duty     = 0U;
 
     /* 1. 安全保护：NTC 传感器开路、脱落或短路，彻底关闭加热防止干烧 */
-    if (temp_c10 == BOARD_TEMP_INVALID)
+    if (temp_c10 == BSP_TEMP_INVALID)
     {
-        board_heater_set_duty(0U);
+        dev_heater_off();
         return;
     }
 
     /* 2. 电池跌落自保护：带载电压低于安全门限（3.15V）强制断开加热，保住主控供电不复位 */
     if (vbat_mv < APP_HEATER_VBAT_SAFE_MV)
     {
-        board_heater_set_duty(0U);
+        dev_heater_off();
         return;
     }
 
@@ -67,5 +67,5 @@ void app_thermal_step(uint32_t vbat_mv)
         }
     }
 
-    board_heater_set_duty(duty);
+    dev_heater_set_power(duty);
 }
