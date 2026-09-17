@@ -24,8 +24,6 @@ typedef enum
     BSP_UART_NUM
 } bsp_uart_t;
 
-#define BSP_UART_JY901B BSP_UART_COMPASS /* 兼容原 01 波特率命名 */
-
 /**
  * @brief 初始化串口并使能接收中断（RXDNE -> 环形缓冲）。
  * @param port 串口编号

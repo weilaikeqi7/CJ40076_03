@@ -50,7 +50,7 @@ static uart_dev_t uart_devs[BSP_UART_NUM] = {
             .rx_pin  = GNSS_RX_PIN,
             .irqn    = USART1_IRQn,
         },
-    [BSP_UART_JY901B] =
+    [BSP_UART_COMPASS] =
         {
             .usart   = USART2,
             .tx_port = COMPASS_TX_PORT,
@@ -77,7 +77,7 @@ static void usart_rcc_enable(bsp_uart_t port)
     case BSP_UART_GNSS:
         RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOA | RCC_APB2_PERIPH_USART1, ENABLE);
         break;
-    case BSP_UART_JY901B:
+    case BSP_UART_COMPASS:
         RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOA, ENABLE);
         RCC_EnableAPB1PeriphClk(RCC_APB1_PERIPH_USART2, ENABLE);
         break;
@@ -207,7 +207,7 @@ void USART2_IRQHandler(void)
 {
     if (USART_GetIntStatus(USART2, USART_INT_RXDNE) != RESET)
     {
-        uart_rx_isr(BSP_UART_JY901B);
+        uart_rx_isr(BSP_UART_COMPASS);
     }
 }
 
