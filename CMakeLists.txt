@@ -90,6 +90,7 @@ set(PROJECT_SOURCES
     src/bsp/bsp_pwm.c
     src/bsp/bsp_timer.c
     src/bsp/bsp_flash.c
+    src/bsp/bsp_iwdg.c
 
     # 设备层
     src/device/dev_ranger.c

@@ -10,6 +10,7 @@
 #include "app_thermal.h"
 #include "bsp_adc.h"
 #include "bsp_gpio.h"
+#include "bsp_iwdg.h"
 #include "dev_compass.h"
 #include "dev_display.h"
 #include "dev_gnss.h"
@@ -120,5 +121,11 @@ void app_power_shutdown(void)
     bsp_power_hold_ctrl(false); /* 释放 PB12，切断整机总电源 */
     while (1)
     {
+        /* 关机等待掉电死循环中持续喂狗，防止板载电容残余电压放电期间看门狗超时误触发复位重启 */
+        bsp_iwdg_feed();
+        for (volatile uint32_t i = 0U; i < 50000U; i++)
+        {
+            __NOP();
+        }
     }
 }

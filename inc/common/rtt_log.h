@@ -22,6 +22,8 @@ void rtt_write(const char* str);
 void rtt_printf(const char* fmt, ...);
 
 #define LOGI(...) rtt_printf(__VA_ARGS__)
+#define LOGW(...) rtt_printf(__VA_ARGS__)
+#define LOGE(...) rtt_printf(__VA_ARGS__)
 
 #ifdef __cplusplus
 }

@@ -14,6 +14,7 @@
 #include "app_store.h"
 #include "app_thermal.h"
 #include "bsp_adc.h"
+#include "bsp_iwdg.h"
 #include "dev_compass.h"
 #include "dev_display.h"
 #include "dev_gnss.h"
@@ -45,6 +46,25 @@ static bool            trigger_att_valid;
 
 static bool compass_on = false;
 static bool gnss_on    = false;
+
+/* ------------------------------ 看门狗与任务保活 ------------------------------ */
+
+/** 独立看门狗超时时间配置（2500ms，允许各任务抢占延迟抖动） */
+#define APP_IWDG_TIMEOUT_MS 2500U
+
+/** 4 大并发任务打卡位掩码定义 */
+#define TASK_ALIVE_BIT_KEY   (1U << 0)
+#define TASK_ALIVE_BIT_SENS  (1U << 1)
+#define TASK_ALIVE_BIT_DISP  (1U << 2)
+#define TASK_ALIVE_BIT_PWR   (1U << 3)
+#define TASK_ALIVE_ALL       (TASK_ALIVE_BIT_KEY | TASK_ALIVE_BIT_SENS | TASK_ALIVE_BIT_DISP | TASK_ALIVE_BIT_PWR)
+
+static volatile uint32_t s_task_alive_bits = 0U;
+
+static inline void app_mark_key_alive(void)  { s_task_alive_bits |= TASK_ALIVE_BIT_KEY; }
+static inline void app_mark_sens_alive(void) { s_task_alive_bits |= TASK_ALIVE_BIT_SENS; }
+static inline void app_mark_disp_alive(void) { s_task_alive_bits |= TASK_ALIVE_BIT_DISP; }
+static inline void app_mark_pwr_alive(void)  { s_task_alive_bits |= TASK_ALIVE_BIT_PWR; }
 
 /* ------------------------------ 供电调度 ------------------------------ */
 
@@ -240,6 +260,10 @@ void app_system_init(void)
     app_key_init();
 
     power_apply();      /* 初始模式供电策略 */
+
+    /* 启动硬件独立看门狗，进入全系统协同监控保活模式 */
+    bsp_iwdg_init(APP_IWDG_TIMEOUT_MS);
+    LOGI("sys: IWDG started (%ums timeout)\r\n", (unsigned int)APP_IWDG_TIMEOUT_MS);
 }
 
 /* ========================================================================== */
@@ -256,6 +280,8 @@ void app_task_key(void* argument)
 
     while (1)
     {
+        app_mark_key_alive(); /* T_KEY 任务健康打卡 */
+
         app_key_event_t evt = app_key_scan();
         if (evt.evt != APP_KEY_EVT_NONE)
         {
@@ -275,6 +301,8 @@ void app_task_sensor(void* argument)
 
     while (1)
     {
+        app_mark_sens_alive(); /* T_SENS 任务健康打卡 */
+
         /* 1. 激光测距机：常开供电，始终轮询命令与回包状态机 */
         measure_poll();
 
@@ -321,6 +349,8 @@ void app_task_display(void* argument)
 
     while (1)
     {
+        app_mark_disp_alive(); /* T_DISP 任务健康打卡 */
+
         /* 1. 100ms 构造显示状态并渲染：临界区原子抓取快照（耗时 < 0.5 微秒） */
         memset(&disp, 0, sizeof(disp));
         disp.self_valid  = coord_get_self(&disp.self);
@@ -388,6 +418,21 @@ void app_task_power(void* argument)
 
     while (1)
     {
+        /* 1. T_PWR 自身打卡 */
+        app_mark_pwr_alive();
+
+        /* 2. 4 大并发业务任务协同喂狗判定：仅当全部任务在周期内正常调度打卡，才执行硬件喂狗 */
+        if ((s_task_alive_bits & TASK_ALIVE_ALL) == TASK_ALIVE_ALL)
+        {
+            bsp_iwdg_feed();        /* 4 任务均健康存活，喂狗重装倒计数 */
+            s_task_alive_bits = 0U; /* 复位打卡标志，开启下一周期考核 */
+        }
+        else
+        {
+            LOGW("sys: task alive check missing! bits=0x%02X\r\n", (unsigned int)s_task_alive_bits);
+            /* 任一任务卡死/阻塞/挂起时，故意停止喂狗，等待硬件看门狗在 2.5 秒后强行复位重启 */
+        }
+
         app_power_check();
         vTaskDelay(pdMS_TO_TICKS(APP_BATT_CHECK_MS));
     }
