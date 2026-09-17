@@ -5,16 +5,15 @@
 #include "rtt_log.h"
 
 #if defined(N32G4FR)
-#include "n32g4fr.h"
+#include "n32g4fr.h" // IWYU pragma: keep
 #elif defined(N32L40X)
-#include "n32l40x.h"
+#include "n32l40x.h" // IWYU pragma: keep
 #else
 #error "未知的 N32 目标芯片，请在编译宏中定义 N32G4FR 或 N32L40X"
 #endif
 
 #include <stdarg.h>
 #include <stdio.h>
-#include <string.h>
 
 #define RTT_UP_BUF_SIZE 512U
 

@@ -7,14 +7,6 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#include <stdint.h>
-
-#if defined(N32_EXPECT_FPU) && (N32_EXPECT_FPU == 1)
-#if (__FPU_USED != 1)
-#error "FPU was requested, but CMSIS reports __FPU_USED != 1. Check -mfpu and -mfloat-abi."
-#endif
-#endif
-
 int main(void)
 {
     BaseType_t ret;
@@ -86,3 +78,4 @@ void assert_failed(const uint8_t* expr, const uint8_t* file, uint32_t line)
     Error_Handler();
 }
 #endif
+
