@@ -61,6 +61,7 @@ set(PROJECT_SOURCES
     src/board/board.c
     src/board/board_adc.c
     src/board/board_uart.c
+    src/board/board_flash.c
     src/device/lcd.c
     src/device/lcd_map.c
     src/device/gnss.c

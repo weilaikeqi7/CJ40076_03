@@ -7,9 +7,13 @@
 #include "app_calib.h"
 #include "app_config.h"
 #include "app_store.h"
+#include "app_thermal.h"
 #include "board.h"
 #include "board_adc.h"
+#include "gnss.h"
 #include "lcd.h"
+#include "mcp406.h"
+#include "ranger.h"
 #include "rtt_log.h"
 
 #include "FreeRTOS.h"
@@ -108,10 +112,10 @@ void app_power_shutdown(void)
     (void)store_save_count(); /* 正常关机与欠压关机均保存计数 */
 
     lcd_power_off();            /* 先 DISP=0 再断屏电 */
-    board_ranger_power(false);
-    board_compass_power(false);
-    board_gnss_power(false);
-    board_heater(false);
+    ranger_power_ctl(false);    /* 测距机下电 */
+    mcp406_power_ctl(false);    /* 电子罗盘下电 */
+    gnss_power_ctl(false);      /* 卫星定位下电 */
+    app_thermal_off();          /* 加热丝强制切断 */
 
     board_power_hold(false);    /* 释放 PB12，切断整机总电源 */
     while (1)

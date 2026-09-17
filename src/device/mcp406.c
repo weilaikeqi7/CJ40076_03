@@ -228,6 +228,33 @@ void mcp406_init(void)
     s_cal_state.cal_score = -1.0f;
 }
 
+void mcp406_power_ctl(bool on)
+{
+    board_compass_power(on);
+    if (on)
+    {
+        /* 重新上电后等待模块启动，刷新接收缓存 */
+        vTaskDelay(pdMS_TO_TICKS(300U));
+        board_uart_flush_rx(MCP406_UART);
+    }
+}
+
+bool mcp406_self_check(uint32_t timeout_ms)
+{
+    uint32_t start = xTaskGetTickCount();
+
+    while ((xTaskGetTickCount() - start) < pdMS_TO_TICKS(timeout_ms))
+    {
+        mcp406_poll();
+        if (s_mcp406_data.tick_angle != 0U)
+        {
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20U));
+    }
+    return false;
+}
+
 const mcp406_data_t* mcp406_get_data(void)
 {
     return &s_mcp406_data;

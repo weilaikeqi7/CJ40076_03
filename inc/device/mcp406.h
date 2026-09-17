@@ -39,6 +39,19 @@ typedef struct
 } mcp406_cal_state_t;
 
 /**
+ * @brief 控制罗盘硬件供电，上电时自动等待启动稳定并刷新接收缓存
+ * @param on true 打开供电，false 关闭供电
+ */
+void mcp406_power_ctl(bool on);
+
+/**
+ * @brief 执行罗盘启动自检（在指定超时内等待第一帧有效姿态角广播）
+ * @param timeout_ms 超时时间（毫秒，通常 3000ms）
+ * @return true 自检成功，false 自检失败（超时无有效角度帧）
+ */
+bool mcp406_self_check(uint32_t timeout_ms);
+
+/**
  * @brief 初始化并配置 MCP-406 电子罗盘：
  *        开启电源 -> 等待启动 -> 设安装方式为 Y 轴朝下 180° -> 设输出组件 -> 启动 10Hz 广播模式。
  * @note  必须在 FreeRTOS 任务上下文调用。

@@ -15,7 +15,6 @@
 #include "app_thermal.h"
 #include "board.h"
 #include "board_adc.h"
-#include "board_uart.h"
 #include "gnss.h"
 #include "lcd.h"
 #include "mcp406.h"
@@ -75,25 +74,14 @@ static void power_apply(void)
 
     if (need_compass != compass_on)
     {
-        board_compass_power(need_compass);
+        mcp406_power_ctl(need_compass);
         compass_on = need_compass;
-        if (need_compass)
-        {
-            /* 重新上电后等待模块启动，刷新接收缓存 */
-            vTaskDelay(pdMS_TO_TICKS(300U));
-            board_uart_flush_rx(BOARD_UART_COMPASS);
-        }
     }
 
     if (need_gnss != gnss_on)
     {
-        board_gnss_power(need_gnss);
+        gnss_power_ctl(need_gnss);
         gnss_on = need_gnss;
-        if (need_gnss)
-        {
-            vTaskDelay(pdMS_TO_TICKS(100U));
-            board_uart_flush_rx(BOARD_UART_GNSS);
-        }
     }
 }
 
@@ -218,24 +206,19 @@ static void handle_key(const app_key_event_t* evt)
 
 static void startup_self_check(void)
 {
-    uint32_t start = xTaskGetTickCount();
-
     /* MCP-406：上电 + 配置（Y轴朝下180°、输出方位/俯仰/横滚、10Hz广播输出） */
     mcp406_init();
     compass_on = true;
 
-    /* 角度帧自检：3s 内等到第一帧广播角度 */
-    while ((xTaskGetTickCount() - start) < pdMS_TO_TICKS(3000U))
+    /* 设备层自检：3s 内等待接收第一帧有效角度广播帧 */
+    if (mcp406_self_check(3000U))
     {
-        attitude_update();
-        if (attitude_valid())
-        {
-            LOGI("sys: MCP-406 angle frame self-check OK\r\n");
-            return;
-        }
-        vTaskDelay(pdMS_TO_TICKS(20U));
+        LOGI("sys: MCP-406 angle frame self-check OK\r\n");
     }
-    LOGI("sys: MCP-406 self-check FAILED (no angle frame)\r\n");
+    else
+    {
+        LOGI("sys: MCP-406 self-check FAILED (no angle frame)\r\n");
+    }
 }
 
 void app_system_init(void)
@@ -249,15 +232,15 @@ void app_system_init(void)
     app_thermal_init(); /* 初始化热管理 */
     attitude_load_offsets();
 
-    display_init();   /* 屏幕上电初始化 */
-    ranger_init();    /* 测距机常开供电（含 1.6s 预热启动） */
-    gnss_init();      /* GNSS 初始化后按策略待机 */
-    board_gnss_power(false);
+    display_init();     /* 屏幕设备上电初始化 */
+    ranger_init();      /* 测距机常开供电（含 1.6s 预热启动） */
+    gnss_init();        /* GNSS 初始化后按策略待机 */
+    gnss_power_ctl(false);
 
-    startup_self_check(); /* 罗盘配置 + 角度自检 */
+    startup_self_check(); /* 罗盘设备配置 + 角度自检 */
     app_key_init();
 
-    power_apply();    /* 初始模式供电策略 */
+    power_apply();      /* 初始模式供电策略 */
 }
 
 /* ========================================================================== */

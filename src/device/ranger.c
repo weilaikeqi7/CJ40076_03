@@ -237,6 +237,11 @@ void ranger_init(void)
     last_error    = 0xFFU;
 }
 
+void ranger_power_ctl(bool on)
+{
+    board_ranger_power(on);
+}
+
 void ranger_deinit(void)
 {
     ranger_range_stop();

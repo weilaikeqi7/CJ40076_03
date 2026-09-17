@@ -326,6 +326,16 @@ void gnss_init(void)
     memset(&gnss_data, 0, sizeof(gnss_data));
 }
 
+void gnss_power_ctl(bool on)
+{
+    board_gnss_power(on);
+    if (on)
+    {
+        vTaskDelay(pdMS_TO_TICKS(100U));
+        board_uart_flush_rx(GNSS_UART);
+    }
+}
+
 void gnss_poll(void)
 {
     static char    line[NMEA_LINE_MAX];
