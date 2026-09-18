@@ -2,8 +2,6 @@
  * @file app_display.c
  * @brief LCD 业务渲染实现
  *
- * TODO（实物确认）：模式图标段号 LCD_ICON_SINGLE / LCD_ICON_CONT 暂无屏厂定义，
- * 暂用 S31/S32 占位，确定后改这两个宏即可。
  */
 #include "app_display.h"
 
@@ -13,7 +11,7 @@
 
 #include <string.h>
 
-/** 模式图标（TODO 实物确认段号） */
+/** 模式图标 */
 #define LCD_ICON_SINGLE 31 /* S31 */
 #define LCD_ICON_CONT   32 /* S32 */
 
