@@ -73,6 +73,8 @@ static void power_apply(void)
     bool need_compass;
     bool need_gnss;
 
+    if (app_power_is_shutting_down()) return;
+
     if (calib_page_active())
     {
         /* 校准页/磁场校准：GNSS 关、电子罗盘保 */
@@ -93,7 +95,7 @@ static void power_apply(void)
 
     if (need_compass != compass_on)
     {
-        jy901b_power_ctl(need_compass);
+        compass_power_ctl(need_compass);
         compass_on = need_compass;
     }
 
@@ -225,18 +227,17 @@ static void handle_key(const app_key_event_t* evt)
 
 static void startup_self_check(void)
 {
-    /* JY901B：上电 + 配置（垂直安装、仅角度输出、5Hz广播） */
-    jy901b_init();
+    /* Initialize the selected model using its installed orientation/profile. */
+    compass_init();
     compass_on = true;
 
-    /* 设备层自检：3s 内等待接收第一帧有效角度广播帧 */
-    if (jy901b_self_check(3000U))
+    if (compass_self_check(3000U))
     {
-        LOGI("sys: JY901B angle frame self-check OK\r\n");
+        LOGI("sys: %s angle frame self-check OK\r\n", compass_model_name());
     }
     else
     {
-        LOGI("sys: JY901B self-check FAILED (no angle frame)\r\n");
+        LOGI("sys: %s self-check FAILED (no angle frame)\r\n", compass_model_name());
     }
 }
 

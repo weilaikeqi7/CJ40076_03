@@ -1,9 +1,9 @@
 /**
  * @file app_attitude.h
- * @brief 姿态解算：JY901B 原始角度 -> 补偿后俯仰/航向（0.01 度整数运算）
+ * @brief Selected compass angles -> compensated pitch/heading (0.01 degrees).
  *
- * JY901B 设备层已按本机垂直安装方向完成俯仰/航向符号换算；本层只叠加
- * PIt、HIt、HEr 主控补偿并完成范围限制。JY901B 配置为 ORIENT=1、5Hz 角度帧。
+ * The device layer preserves each model's installed pitch/heading convention.
+ * This layer only adds PIt/HIt/HEr host offsets and normalizes the ranges.
  */
 #ifndef APP_ATTITUDE_H
 #define APP_ATTITUDE_H
@@ -17,7 +17,7 @@ extern "C" {
 
 #include "app_store.h"
 
-/** 主循环周期调用：取 JY901B 最新角度帧并换算 */
+/** Sensor-task update: poll the selected compass and compensate fresh angles. */
 void attitude_update(void);
 
 /** 姿态是否有效（超时内收到角度帧） */

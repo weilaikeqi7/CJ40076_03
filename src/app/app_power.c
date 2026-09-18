@@ -22,6 +22,7 @@
 
 static uint32_t s_batt_mv  = 4200U;
 static uint8_t  s_batt_lvl = 4U;
+static volatile bool s_shutting_down;
 
 void app_power_init(void)
 {
@@ -101,9 +102,17 @@ uint8_t app_power_get_batt_lvl(void)
     return s_batt_lvl;
 }
 
+bool app_power_is_shutting_down(void)
+{
+    return s_shutting_down;
+}
+
 void app_power_shutdown(void)
 {
-    /* JY901B 磁场校准中长按关机 = 放弃本轮（不发送结束/保存命令） */
+    /* Publish before any blocking teardown can let T_KEY resume. */
+    s_shutting_down = true;
+
+    /* Magnetic calibration shutdown aborts without an end/save command. */
     if (calib_mag_in_progress())
     {
         LOGI("calib: mag calibration aborted by power off\r\n");
@@ -114,7 +123,7 @@ void app_power_shutdown(void)
 
     lcd_power_off();            /* 先 DISP=0 再断屏电 */
     ranger_power_ctl(false);    /* 测距机下电 */
-    jy901b_power_ctl(false);    /* 电子罗盘下电 */
+    compass_power_ctl(false);   /* 电子罗盘下电 */
     gnss_power_ctl(false);      /* 卫星定位下电 */
     app_thermal_off();          /* 加热丝强制切断 */
 

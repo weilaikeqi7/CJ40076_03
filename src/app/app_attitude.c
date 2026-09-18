@@ -1,6 +1,6 @@
 /**
  * @file app_attitude.c
- * @brief 姿态解算实现（接入 JY901B-TTL 电子罗盘）
+ * @brief Attitude compensation for the compile-time selected compass.
  */
 #include "app_attitude.h"
 
@@ -22,19 +22,28 @@ static uint32_t last_frame_tick;
 
 void attitude_update(void)
 {
-    const jy901b_data_t* compass = jy901b_get_data();
-    int32_t              h;
-    int32_t              p;
+    int32_t h;
+    int32_t p;
+    compass_data_t data;
+    const compass_data_t* compass = &data;
 
-    jy901b_poll();
+    compass_poll();
+    taskENTER_CRITICAL();
+    data = *compass_get_data();
+    taskEXIT_CRITICAL();
 
-    if (compass->tick_angle == 0U || compass->tick_angle == last_frame_tick)
+    if (compass->tick_angle == 0U)
+    {
+        last_frame_tick = 0U;
+        return;
+    }
+    if (compass->tick_angle == last_frame_tick)
     {
         return;
     }
     last_frame_tick = compass->tick_angle;
 
-    /* 俯仰：JY901B 输出 ±90.00°，叠加 PIt 补偿，截断到 ±90° */
+    /* Installed pitch convention comes from the driver; add PIt and clamp. */
     p = (int32_t)(compass->pitch * 100.0f) + offsets.pit_c01;
     if (p > 9000)
     {
@@ -46,7 +55,7 @@ void attitude_update(void)
     }
     pitch_c01 = p;
 
-    /* 航向：JY901B 输出 0.00°~359.99°，叠加 HIt + HEr 补偿，归一化到 0.00°~359.99° */
+    /* Add HIt + HEr to the installed heading and normalize to [0, 360). */
     h = (int32_t)(compass->heading * 100.0f) + offsets.hit_c01 + offsets.her_c01;
     h %= APP_HEADING_PERIOD_C01;
     if (h < 0)
@@ -62,7 +71,7 @@ void attitude_update(void)
 
 bool attitude_valid(void)
 {
-    if (last_frame_tick == 0U)
+    if (last_frame_tick == 0U || !compass_is_alive(APP_IMU_TIMEOUT_MS))
     {
         return false;
     }

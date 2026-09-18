@@ -37,6 +37,9 @@ uint32_t app_power_get_batt_mv(void);
  */
 uint8_t app_power_get_batt_lvl(void);
 
+/** True from the start of shutdown until reset; tasks must not restart devices. */
+bool app_power_is_shutting_down(void);
+
 /**
  * @brief 执行整机安全软关机下电流程：
  *        1. 记录关机日志并持久化保存测量累计计数至 Flash；
