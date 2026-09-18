@@ -93,7 +93,7 @@ static void power_apply(void)
 
     if (need_compass != compass_on)
     {
-        mcp406_power_ctl(need_compass);
+        mcg505_power_ctl(need_compass);
         compass_on = need_compass;
     }
 
@@ -225,18 +225,18 @@ static void handle_key(const app_key_event_t* evt)
 
 static void startup_self_check(void)
 {
-    /* MCP-406：上电 + 配置（Y轴朝下180°、输出方位/俯仰/横滚、10Hz广播输出） */
-    mcp406_init();
+    /* MCG505：上电 + 配置（Y轴朝下180°、输出方位/俯仰/横滚、10Hz连续广播输出） */
+    mcg505_init();
     compass_on = true;
 
     /* 设备层自检：3s 内等待接收第一帧有效角度广播帧 */
-    if (mcp406_self_check(3000U))
+    if (mcg505_self_check(3000U))
     {
-        LOGI("sys: MCP-406 angle frame self-check OK\r\n");
+        LOGI("sys: MCG505 angle frame self-check OK\r\n");
     }
     else
     {
-        LOGI("sys: MCP-406 self-check FAILED (no angle frame)\r\n");
+        LOGI("sys: MCG505 self-check FAILED (no angle frame)\r\n");
     }
 }
 
