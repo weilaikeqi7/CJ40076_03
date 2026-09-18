@@ -32,9 +32,9 @@
 #define APP_RANGE_INVALID_INT 0xFFFFU
 
 /* ------------------------------ 姿态/罗盘 ------------------------------ */
-/** 默认补偿（0.01 度单位）：PIt=0.00°，HIt=+90.00°，HEr=0.00° */
+/** 默认补偿（0.01 度单位）：PIt=0.00°，HIt=0.00°，HEr=0.00° */
 #define APP_DEFAULT_PIT_C01 0
-#define APP_DEFAULT_HIT_C01 9000
+#define APP_DEFAULT_HIT_C01 0
 #define APP_DEFAULT_HER_C01 0
 
 /** 补偿范围（0.01 度）：PIt ±90°，HIt/HEr ±180° */
