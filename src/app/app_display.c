@@ -9,6 +9,7 @@
 #include "dev_display.h"
 #include "dev_display_map.h"
 
+#include <math.h>
 #include <string.h>
 
 /** 模式图标 */
@@ -397,6 +398,41 @@ void display_render(const disp_state_t* s)
     }
 
     lcd_clear();
+
+    /* Sample-calibration layout restored from the MCP406 feature. */
+    if (s->page == DISP_PAGE_MAG_CAL)
+    {
+        uint32_t h_x1 = (uint32_t)s->heading_c01 / 10U;
+        draw_x3_1(LCD_HISEG_HEADING, 1, LCD_DOT_TOP, h_x1, s->att_valid);
+        lcd_symbol(LCD_DEG_TOP, s->att_valid);
+        draw_compass(s->heading_c01, s->att_valid);
+        draw_pitch(s->pitch_c01, s->att_valid);
+
+        /* Validate before any float-to-integer conversion; retain error scores. */
+        if (!s->cal_score_valid || !isfinite(s->cal_score) ||
+            s->cal_score < 0.0f || s->cal_score > 3999.9f)
+        {
+            draw_x4_1(LCD_HISEG_DIST, 4, LCD_SYM_DOT_ROW2, 0U, false);
+        }
+        else
+        {
+            uint32_t sc100 = (uint32_t)(s->cal_score * 100.0f + 0.5f);
+            uint32_t sc10 = (uint32_t)(s->cal_score * 10.0f + 0.5f);
+            /* ROW2 has one physical decimal place. The coordinate row supports two. */
+            draw_x4_1(LCD_HISEG_DIST, 4, LCD_SYM_DOT_ROW2, sc10, true);
+            lcd_print_uint(11, 4, sc100 / 100U, false);
+            put_digit(15, (int8_t)((sc100 / 10U) % 10U));
+            put_digit(16, (int8_t)(sc100 % 10U));
+            lcd_symbol(LCD_SYM_DOT_BIG, true);
+        }
+
+        lcd_print_uint(17, 4, s->cal_cur_samples > 9999U ? 9999U : s->cal_cur_samples, false);
+        lcd_symbol(LCD_SYM_UNIT_H, true);
+        lcd_print_uint(21, 4, s->cal_total_samples, false);
+        draw_battery(s->batt_level);
+        lcd_flush();
+        return;
+    }
 
     /* ---------------- 补偿设置页（PIt/HIt/HEr） ---------------- */
     if (s->page != DISP_PAGE_NONE)

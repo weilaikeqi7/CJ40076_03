@@ -179,7 +179,7 @@ static void handle_key(const app_key_event_t* evt)
         app_power_shutdown();
     }
 
-    /* 校准模块优先消费：JY901B 磁场/加速度/角度参考校准及主控补偿设置 */
+    /* Calibration keys only set state/queue commands; execution follows power_apply. */
     if (calib_handle_key(evt))
     {
         /* 进入校准页/校准流程：停止测距 */
@@ -282,11 +282,24 @@ void app_task_key(void* argument)
     {
         app_mark_key_alive(); /* T_KEY 任务健康打卡 */
 
+        if (app_power_is_shutting_down())
+        {
+            vTaskDelay(pdMS_TO_TICKS(APP_KEY_SCAN_MS));
+            continue;
+        }
+
         app_key_event_t evt = app_key_scan();
         if (evt.evt != APP_KEY_EVT_NONE)
         {
             handle_key(&evt);
         }
+        /* State is established before power/commands; completion may release power. */
+        power_apply();
+        if (!app_power_is_shutting_down())
+        {
+            calib_step();
+        }
+        power_apply();
         vTaskDelay(pdMS_TO_TICKS(APP_KEY_SCAN_MS));
     }
 }
@@ -367,7 +380,6 @@ void app_task_display(void* argument)
         disp.target_far  = target_far;
         disp.count       = store_get_count();
         disp.batt_level  = app_power_get_batt_lvl();
-        taskEXIT_CRITICAL();
 
         switch (calib_get_state())
         {
@@ -384,15 +396,30 @@ void app_task_display(void* argument)
             disp.page_value_c01 = calib_page_value_c01();
             break;
         case CALIB_MAG:
+            if (compass_mag_uses_samples())
+            {
+                const compass_cal_state_t* cs = compass_get_cal_state();
+                disp.page = DISP_PAGE_MAG_CAL;
+                disp.cal_cur_samples = cs->sample_count;
+                disp.cal_total_samples = APP_MAG_CAL_TOTAL_SAMPLES;
+                disp.cal_score = cs->cal_score;
+                disp.cal_score_valid = cs->score_valid;
+            }
+            else
+            {
+                disp.page = DISP_PAGE_FULL_ON;
+            }
+            break;
         case CALIB_ACC_BUSY:
         case CALIB_ANG_BUSY:
         case CALIB_FACTORY_BUSY:
-            disp.page = DISP_PAGE_FULL_ON;
+            disp.page = compass_mag_uses_samples() ? DISP_PAGE_NONE : DISP_PAGE_FULL_ON;
             break;
         default:
             disp.page = DISP_PAGE_NONE;
             break;
         }
+        taskEXIT_CRITICAL();
 
         display_render(&disp);
 

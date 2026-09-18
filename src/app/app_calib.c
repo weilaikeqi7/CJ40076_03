@@ -1,6 +1,6 @@
 /**
  * @file app_calib.c
- * @brief JY901B 校准与主控姿态补偿设置状态机实现
+ * @brief Model-neutral hardware calibration and host compensation state machine.
  */
 #include "app_calib.h"
 
@@ -9,15 +9,26 @@
 #include "dev_compass.h"
 #include "rtt_log.h"
 
-#include "FreeRTOS.h"
-#include "task.h"
+typedef enum
+{
+    CMD_NONE = 0,
+    CMD_MAG_START,
+    CMD_MAG_END,
+    CMD_MAG_SAMPLE,
+    CMD_ACCEL,
+    CMD_ANGLE_REF,
+    CMD_FACTORY,
+} calib_command_t;
 
 static calib_state_t state = CALIB_NONE;
+static calib_command_t pending;
+static bool async_started;
 static app_offsets_t work;
 
-static void ensure_jy901b_on(void)
+static bool hardware_busy(void)
 {
-    jy901b_power_ctl(true);
+    return state == CALIB_ACC_BUSY || state == CALIB_ANG_BUSY ||
+           state == CALIB_FACTORY_BUSY;
 }
 
 static int16_t* page_ptr(void)
@@ -65,6 +76,9 @@ static void page_adjust(int16_t delta_c01)
 
 bool calib_handle_key(const app_key_event_t* evt)
 {
+    /* app handles long shutdown before dispatching here. */
+    if (pending != CMD_NONE || hardware_busy() || compass_is_busy()) return true;
+
     if (state == CALIB_NONE)
     {
         if ((evt->evt & APP_KEY_EVT_MODE_CLICKS) == 0U) return false;
@@ -72,47 +86,37 @@ bool calib_handle_key(const app_key_event_t* evt)
         switch (evt->arg)
         {
         case 4U:
-            ensure_jy901b_on();
             page_enter(CALIB_HER);
             return true;
         case 5U:
-            ensure_jy901b_on();
-            jy901b_calib_mag_start();
             state = CALIB_MAG;
-            LOGI("calib: JY901B magnetic calibration started; rotate each axis\r\n");
+            pending = CMD_MAG_START;
+            return true;
+        case 6U:
             return true;
         case 7U:
-            ensure_jy901b_on();
             page_enter(CALIB_PIT);
             return true;
         case 8U:
-            ensure_jy901b_on();
-            state = CALIB_ACC_BUSY;
-            jy901b_calib_accel();
-            state = CALIB_NONE;
-            LOGI("calib: JY901B accelerometer calibration finished\r\n");
+            if (!compass_mag_uses_samples())
+            {
+                state = CALIB_ACC_BUSY;
+                pending = CMD_ACCEL;
+            }
             return true;
         case 9U:
-            ensure_jy901b_on();
-            state = CALIB_ANG_BUSY;
-            jy901b_calib_angle_ref();
-            state = CALIB_NONE;
-            LOGI("calib: JY901B angle reference finished\r\n");
+            if (!compass_mag_uses_samples())
+            {
+                state = CALIB_ANG_BUSY;
+                pending = CMD_ANGLE_REF;
+            }
             return true;
         case 10U:
-            ensure_jy901b_on();
             state = CALIB_FACTORY_BUSY;
-            jy901b_factory_reset();
-            work.pit_c01 = APP_DEFAULT_PIT_C01;
-            work.hit_c01 = APP_DEFAULT_HIT_C01;
-            work.her_c01 = APP_DEFAULT_HER_C01;
-            (void)store_save_offsets(&work);
-            attitude_set_offsets(&work);
-            state = CALIB_NONE;
-            LOGI("calib: JY901B factory reset finished\r\n");
+            pending = CMD_FACTORY;
             return true;
         default:
-            return true;
+            return false;
         }
     }
 
@@ -120,9 +124,12 @@ bool calib_handle_key(const app_key_event_t* evt)
     {
         if ((evt->evt & APP_KEY_EVT_MODE_CLICKS) != 0U && evt->arg == 6U)
         {
-            jy901b_calib_mag_end();
-            state = CALIB_NONE;
-            LOGI("calib: JY901B magnetic calibration ended and saved\r\n");
+            pending = CMD_MAG_END;
+        }
+        else if ((evt->evt & APP_KEY_EVT_POWER_SHORT) != 0U &&
+                 compass_mag_uses_samples() && !compass_get_cal_state()->score_valid)
+        {
+            pending = CMD_MAG_SAMPLE;
         }
         return true;
     }
@@ -151,6 +158,64 @@ bool calib_handle_key(const app_key_event_t* evt)
         return true;
     }
     return true;
+}
+
+void calib_step(void)
+{
+    calib_command_t command;
+
+    compass_step();
+    if (compass_is_busy()) return;
+
+    /* app has stopped ranging and applied power before executing this queue. */
+    command = pending;
+    pending = CMD_NONE;
+    switch (command)
+    {
+    case CMD_MAG_START:
+        compass_calib_mag_start();
+        LOGI("calib: %s magnetic calibration started\r\n", compass_model_name());
+        break;
+    case CMD_MAG_END:
+        compass_calib_mag_end();
+        state = CALIB_NONE;
+        LOGI("calib: %s magnetic calibration ended\r\n", compass_model_name());
+        break;
+    case CMD_MAG_SAMPLE:
+        if (!compass_get_cal_state()->score_valid) compass_calib_take_sample();
+        break;
+    case CMD_ACCEL:
+        async_started = compass_calib_accel();
+        break;
+    case CMD_ANGLE_REF:
+        async_started = compass_calib_angle_ref();
+        break;
+    case CMD_FACTORY:
+        async_started = compass_factory_reset();
+        break;
+    default:
+        break;
+    }
+
+    if (!hardware_busy() || compass_is_busy()) return;
+    if (async_started)
+    {
+        if (state == CALIB_FACTORY_BUSY)
+        {
+            work.pit_c01 = APP_DEFAULT_PIT_C01;
+            work.hit_c01 = APP_DEFAULT_HIT_C01;
+            work.her_c01 = APP_DEFAULT_HER_C01;
+            (void)store_save_offsets(&work);
+            attitude_set_offsets(&work);
+        }
+        LOGI("calib: %s hardware operation %d finished\r\n", compass_model_name(), (int)state);
+    }
+    else
+    {
+        LOGW("calib: %s hardware operation %d rejected\r\n", compass_model_name(), (int)state);
+    }
+    async_started = false;
+    state = CALIB_NONE;
 }
 
 calib_state_t calib_get_state(void) { return state; }
