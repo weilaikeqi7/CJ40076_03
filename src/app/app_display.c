@@ -96,10 +96,10 @@ static void draw_x4_1(lcd_hiseg_t hiseg, uint8_t first_digit, uint8_t dot_sym, u
 
     if (!valid)
     {
-        lcd_hiseg_digit(hiseg, 0xFFU);
+        lcd_hiseg_digit(hiseg, 0xFFU); /* 千位特殊段无横杠段，无效时彻底熄灭 */
         for (i = 0U; i < 3U; i++)
         {
-            put_digit((uint8_t)(first_digit + i), -2);
+            put_digit((uint8_t)(first_digit + i), -2); /* 其余 3 位标准 7 段数码管显示横杠 "---" */
         }
         put_digit((uint8_t)(first_digit + 3U), -1);
         lcd_symbol(dot_sym, false);
@@ -483,7 +483,7 @@ void display_render(const disp_state_t* s)
                                     s->mode == MEAS_MODE_TEST);
     lcd_symbol(LCD_ICON_CONT, s->mode == MEAS_MODE_CONT || s->mode == MEAS_MODE_TEST);
 
-    /* 顶行航向 + 罗盘（仅多功能/测试） */
+    /* 顶行航向 + 罗盘（仅多功能/测试上电使能；单次/连续罗盘不上电，彻底熄灭） */
     if (multi_mode)
     {
         uint32_t h_x1 = (uint32_t)s->heading_c01 / 10U;
@@ -491,11 +491,33 @@ void display_render(const disp_state_t* s)
         lcd_symbol(LCD_DEG_TOP, s->att_valid);
         draw_compass(s->heading_c01, s->att_valid);
     }
+    else
+    {
+        /* 单次/连续模式：熄灭顶行百位特殊段、数码管1~3、小数点、度数符与罗盘花 */
+        lcd_hiseg_digit(LCD_HISEG_HEADING, 0xFFU);
+        put_digit(1, -1);
+        put_digit(2, -1);
+        put_digit(3, -1);
+        lcd_symbol(LCD_DOT_TOP, false);
+        lcd_symbol(LCD_DEG_TOP, false);
+        draw_compass(0, false);
+    }
 
-    /* 中行俯仰（仅多功能/测试） */
+    /* 中行俯仰（仅多功能/测试上电使能；单次/连续罗盘不上电，彻底熄灭） */
     if (multi_mode)
     {
         draw_pitch(s->pitch_c01, s->att_valid);
+    }
+    else
+    {
+        /* 单次/连续模式：熄灭中行负号、P字母、数码管25~27、小数点与度数符 */
+        put_digit(25, -1);
+        put_digit(26, -1);
+        put_digit(27, -1);
+        lcd_symbol(LCD_DOT_MID, false);
+        lcd_symbol(LCD_DEG_MID, false);
+        lcd_symbol(LCD_SYM_MINUS_MID, false);
+        lcd_symbol(LCD_SYM_MID_P, false);
     }
 
     /* 第二行距离：F/E 交替 */
@@ -565,6 +587,33 @@ void display_render(const disp_state_t* s)
         }
         lcd_symbol(LCD_SYM_UNIT_H, true);
         lcd_symbol(LCD_SYM_UNIT_M_BOT, true);
+    }
+    else
+    {
+        /* 单次/连续模式：GNSS 模块不上电，底行大字经纬度与高程区域全部彻底熄灭 */
+        lcd_symbol(LCD_SYM_LOCATION, false);
+        lcd_symbol(LCD_SYM_TARGET, false);
+        draw_coord(0.0, false, false);
+        draw_x4_1(LCD_HISEG_ELEV, 17, LCD_DOT_BOT, 0U, false);
+        /* 将 draw_coord 和 draw_x4_1 产生的横杠彻底清除，保持完全留白熄灭 */
+        {
+            uint8_t d;
+            for (d = 8U; d <= 20U; d++)
+            {
+                put_digit(d, -1);
+            }
+        }
+        lcd_symbol(LCD_DEG_BIG, false);
+        lcd_symbol(LCD_MIN_SYM, false);
+        lcd_symbol(LCD_SEC_SYM, false);
+        lcd_symbol(LCD_DOT_BIG, false);
+        lcd_symbol(LCD_SYM_WIND_N, false);
+        lcd_symbol(LCD_SYM_WIND_S, false);
+        lcd_symbol(LCD_SYM_WIND_E, false);
+        lcd_symbol(LCD_SYM_WIND_W, false);
+        lcd_symbol(LCD_DOT_BOT, false);
+        lcd_symbol(LCD_SYM_UNIT_H, false);
+        lcd_symbol(LCD_SYM_UNIT_M_BOT, false);
     }
 
     /* 底行计数 21~24 */
