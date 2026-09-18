@@ -103,7 +103,7 @@ uint8_t app_power_get_batt_lvl(void)
 
 void app_power_shutdown(void)
 {
-    /* 磁场校准中长按关机 = 放弃本轮（不发送结束命令） */
+    /* JY901B 磁场校准中长按关机 = 放弃本轮（不发送结束/保存命令） */
     if (calib_mag_in_progress())
     {
         LOGI("calib: mag calibration aborted by power off\r\n");
@@ -114,7 +114,7 @@ void app_power_shutdown(void)
 
     lcd_power_off();            /* 先 DISP=0 再断屏电 */
     ranger_power_ctl(false);    /* 测距机下电 */
-    mcp406_power_ctl(false);    /* 电子罗盘下电 */
+    jy901b_power_ctl(false);    /* 电子罗盘下电 */
     gnss_power_ctl(false);      /* 卫星定位下电 */
     app_thermal_off();          /* 加热丝强制切断 */
 

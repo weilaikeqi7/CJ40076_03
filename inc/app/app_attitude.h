@@ -2,10 +2,8 @@
  * @file app_attitude.h
  * @brief 姿态解算：JY901B 原始角度 -> 补偿后俯仰/航向（0.01 度整数运算）
  *
- * 换算规则（测试手册）：
- *   俯仰 = -原始俯仰 + PIt      （激光朝上为正、朝下为负）
- *   航向 = -原始航向 + HIt + HEr（归一化到 0~359.99°）
- * JY901B 垂直安装（ORIENT=1），5Hz 仅角度帧。
+ * JY901B 设备层已按本机垂直安装方向完成俯仰/航向符号换算；本层只叠加
+ * PIt、HIt、HEr 主控补偿并完成范围限制。JY901B 配置为 ORIENT=1、5Hz 角度帧。
  */
 #ifndef APP_ATTITUDE_H
 #define APP_ATTITUDE_H

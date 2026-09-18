@@ -73,7 +73,7 @@ static void power_apply(void)
     bool need_compass;
     bool need_gnss;
 
-    if (calib_page_active() || calib_mag_in_progress())
+    if (calib_page_active())
     {
         /* 校准页/磁场校准：GNSS 关、电子罗盘保 */
         need_compass = true;
@@ -93,7 +93,7 @@ static void power_apply(void)
 
     if (need_compass != compass_on)
     {
-        mcp406_power_ctl(need_compass);
+        jy901b_power_ctl(need_compass);
         compass_on = need_compass;
     }
 
@@ -179,7 +179,7 @@ static void handle_key(const app_key_event_t* evt)
         app_power_shutdown();
     }
 
-    /* 校准模块优先消费（多击 4~9、页内调节、双键、5击校准电源键采样、6击退出） */
+    /* 校准模块优先消费：JY901B 磁场/加速度/角度参考校准及主控补偿设置 */
     if (calib_handle_key(evt))
     {
         /* 进入校准页/校准流程：停止测距 */
@@ -225,18 +225,18 @@ static void handle_key(const app_key_event_t* evt)
 
 static void startup_self_check(void)
 {
-    /* MCP-406：上电 + 配置（Y轴朝下180°、输出方位/俯仰/横滚、10Hz广播输出） */
-    mcp406_init();
+    /* JY901B：上电 + 配置（垂直安装、仅角度输出、5Hz广播） */
+    jy901b_init();
     compass_on = true;
 
     /* 设备层自检：3s 内等待接收第一帧有效角度广播帧 */
-    if (mcp406_self_check(3000U))
+    if (jy901b_self_check(3000U))
     {
-        LOGI("sys: MCP-406 angle frame self-check OK\r\n");
+        LOGI("sys: JY901B angle frame self-check OK\r\n");
     }
     else
     {
-        LOGI("sys: MCP-406 self-check FAILED (no angle frame)\r\n");
+        LOGI("sys: JY901B self-check FAILED (no angle frame)\r\n");
     }
 }
 
@@ -384,10 +384,10 @@ void app_task_display(void* argument)
             disp.page_value_c01 = calib_page_value_c01();
             break;
         case CALIB_MAG:
-            disp.page              = DISP_PAGE_MAG_CAL;
-            disp.cal_cur_samples   = calib_mag_cur_samples();
-            disp.cal_total_samples = calib_mag_total_samples();
-            disp.cal_score_valid   = calib_mag_get_score(&disp.cal_score);
+        case CALIB_ACC_BUSY:
+        case CALIB_ANG_BUSY:
+        case CALIB_FACTORY_BUSY:
+            disp.page = DISP_PAGE_FULL_ON;
             break;
         default:
             disp.page = DISP_PAGE_NONE;
