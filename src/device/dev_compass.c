@@ -1,8 +1,6 @@
 /**
  * @file dev_compass.c
- * @brief MCG505 型全国产三维高精度电子罗盘设备驱动实现（USART2 38400 8N1）
- *
- * 通讯协议：遵守 IEEE 标准 ANSI/IEEE Std 754-1985（大端单精度浮点数），CRC-CCITT (XModem) 校验。
+ * @brief MCP-406-TTL 三维高精度电子罗盘设备驱动实现（USART2 38400 8N1）
  */
 #include "dev_compass.h"
 
@@ -15,28 +13,15 @@
 
 #include <string.h>
 
-#define MCG505_UART      BSP_UART_COMPASS
-#define MCG505_FRAME_MAX 128U
+#define MCP406_UART       BSP_UART_COMPASS
+#define MCP406_FRAME_MAX  128U
 
-#define MCG505_HEAD0     0xAAU
-#define MCG505_HEAD1     0x55U
-#define MCG505_ADDR      0x00U
-
-/* 协议命令标识符定义（参考用户手册表 4） */
-#define CMD_GET_DATA_RESP         0x06U /* 测量数据响应 / 连续广播数据 */
-#define CMD_SET_CONFIG_RESP       0x08U /* 参数设置响应 */
-#define CMD_USER_CAL_SAMP_COUNT   0x12U /* 用户校准采样点数返回 */
-#define CMD_CAL_SCORE             0x13U /* 用户校准得分返回 */
-
-static mcg505_data_t      s_mcg505_data;
-static mcg505_cal_state_t s_cal_state;
+static mcp406_data_t      s_mcp406_data;
+static mcp406_cal_state_t s_cal_state;
 
 /* ----------------------------- CRC-16 校验 ----------------------------- */
 
-/**
- * @brief CRC-16-CCITT (XModem) 校验（符合 MCG505 手册标准算法）
- */
-uint16_t mcg505_crc16(const uint8_t* buffer, uint16_t len)
+uint16_t mcp406_crc16(const uint8_t* buffer, uint16_t len)
 {
     uint32_t crc = 0U;
     uint16_t i;
@@ -56,9 +41,6 @@ uint16_t mcg505_crc16(const uint8_t* buffer, uint16_t len)
     return (uint16_t)(crc & 0xFFFFU);
 }
 
-/**
- * @brief 解析 IEEE-754 4字节大端浮点数
- */
 static float parse_float_be(const uint8_t* p)
 {
     union
@@ -75,7 +57,7 @@ static float parse_float_be(const uint8_t* p)
 
 static void send_cmd(const uint8_t* cmd, size_t len)
 {
-    bsp_uart_write(MCG505_UART, cmd, len);
+    bsp_uart_write(MCP406_UART, cmd, len);
 }
 
 /* ----------------------------- 帧接收与解析 ----------------------------- */
@@ -86,21 +68,19 @@ static void handle_frame(uint8_t cmd_id, const uint8_t* payload, uint16_t payloa
 
     switch (cmd_id)
     {
-    case CMD_GET_DATA_RESP: /* 0x06: 10Hz 连续广播数据帧（包含 Heading/Pitch/Roll） */
-        if (payload_len >= 6U)
+    case 0x05: /* GetDataResp（10Hz 广播帧：包含 Heading/Pitch/Roll） */
+        if (payload_len >= 16U && payload[0] == 3U)
         {
-            uint8_t  count = payload[0];
-            uint16_t idx   = 1U;
-            (void)count;
-
+            uint16_t idx = 1U;
             while (idx + 5U <= payload_len)
             {
                 uint8_t comp_id = payload[idx];
                 float   val     = parse_float_be(&payload[idx + 1U]);
                 idx += 5U;
 
-                if (comp_id == 1U) /* 方位角 (Heading，0.00° ~ 359.99°) */
+                if (comp_id == 5U) /* 方位角 (Heading) */
                 {
+                    /* 限制在 0.00° ~ 359.99° */
                     if (val < 0.0f)
                     {
                         val += 360.0f;
@@ -109,9 +89,9 @@ static void handle_frame(uint8_t cmd_id, const uint8_t* payload, uint16_t payloa
                     {
                         val = 0.0f;
                     }
-                    s_mcg505_data.heading = val;
+                    s_mcp406_data.heading = val;
                 }
-                else if (comp_id == 2U) /* 俯仰角 (Pitch，-90.00° ~ +90.00°) */
+                else if (comp_id == 24U) /* 俯仰角 (Pitch) */
                 {
                     if (val > 90.0f)
                     {
@@ -121,41 +101,34 @@ static void handle_frame(uint8_t cmd_id, const uint8_t* payload, uint16_t payloa
                     {
                         val = -90.0f;
                     }
-                    s_mcg505_data.pitch = val;
+                    s_mcp406_data.pitch = val;
                 }
-                else if (comp_id == 3U) /* 横滚角 (Roll，-180.00° ~ +180.00°) */
+                else if (comp_id == 25U) /* 横滚角 (Roll) */
                 {
-                    if (val > 180.0f)
-                    {
-                        val = 180.0f;
-                    }
-                    if (val < -180.0f)
-                    {
-                        val = -180.0f;
-                    }
-                    s_mcg505_data.roll = val;
+                    s_mcp406_data.roll = val;
                 }
             }
-            s_mcg505_data.tick_angle = now;
+            s_mcp406_data.tick_angle = now;
         }
         break;
 
-    case CMD_USER_CAL_SAMP_COUNT: /* 0x12: 用户校准采样点数返回 (Count: Uint8) */
-        if (payload_len >= 1U)
-        {
-            s_cal_state.sample_count = payload[0];
-            LOGI("mcg505: sample count = %u\r\n", (unsigned int)payload[0]);
-        }
-        break;
-
-    case CMD_CAL_SCORE: /* 0x13: 用户校准得分返回 (MagScore: Float32 大端) */
+    case 0x11: /* UserCalSampCount（已采样点数返回，Uint32 大端） */
         if (payload_len >= 4U)
         {
-            float score             = parse_float_be(&payload[0]);
-            s_cal_state.cal_score   = score;
-            s_cal_state.score_valid = true;
-            LOGI("mcg505: cal score received = %d.%02d\r\n", (int)score,
-                 (int)((score - (int)score) * 100));
+            uint32_t count = ((uint32_t)payload[0] << 24U) | ((uint32_t)payload[1] << 16U) |
+                             ((uint32_t)payload[2] << 8U) | (uint32_t)payload[3];
+            s_cal_state.sample_count = count;
+            LOGI("mcp406: sample count = %lu\r\n", (unsigned long)count);
+        }
+        break;
+
+    case 0x12: /* CalScore（校准得分返回，Float32 大端） */
+        if (payload_len >= 4U)
+        {
+            float score               = parse_float_be(&payload[0]);
+            s_cal_state.cal_score     = score;
+            s_cal_state.score_valid   = true;
+            LOGI("mcp406: cal score received = %d.%02d\r\n", (int)score, (int)((score - (int)score) * 100));
         }
         break;
 
@@ -164,51 +137,24 @@ static void handle_frame(uint8_t cmd_id, const uint8_t* payload, uint16_t payloa
     }
 }
 
-void mcg505_poll(void)
+void mcp406_poll(void)
 {
-    static uint8_t  rx_buf[MCG505_FRAME_MAX];
+    static uint8_t  rx_buf[MCP406_FRAME_MAX];
     static uint16_t rx_idx = 0U;
     uint8_t         byte;
 
-    while (bsp_uart_read(MCG505_UART, &byte, 1U) == 1U)
+    while (bsp_uart_read(MCP406_UART, &byte, 1U) == 1U)
     {
-        /* 1. 寻找帧头 AA 55 */
-        if (rx_idx == 0U)
-        {
-            if (byte == MCG505_HEAD0)
-            {
-                rx_buf[rx_idx++] = byte;
-            }
-            continue;
-        }
-        if (rx_idx == 1U)
-        {
-            if (byte == MCG505_HEAD1)
-            {
-                rx_buf[rx_idx++] = byte;
-            }
-            else
-            {
-                rx_idx = 0U;
-                if (byte == MCG505_HEAD0)
-                {
-                    rx_buf[rx_idx++] = byte;
-                }
-            }
-            continue;
-        }
-
         rx_buf[rx_idx++] = byte;
 
-        /* 2. 判断长度：第 3 字节 (rx_buf[2]) 为整帧总长度 */
-        if (rx_idx >= 3U)
+        /* 至少收到 2 字节长度 */
+        if (rx_idx >= 2U)
         {
-            uint8_t frame_len = rx_buf[2];
+            uint16_t frame_len = ((uint16_t)rx_buf[0] << 8U) | rx_buf[1];
 
-            /* 长度异常判定：最小帧长 7 字节，最大不超过缓冲区 */
-            if (frame_len < 7U || frame_len > MCG505_FRAME_MAX)
+            /* 长度异常或超出缓冲区：滑动丢弃首字节 */
+            if (frame_len < 5U || frame_len > MCP406_FRAME_MAX)
             {
-                /* 丢弃首字节，在剩余字节中重新搜寻 AA 55 */
                 uint16_t k;
                 for (k = 1U; k < rx_idx; k++)
                 {
@@ -218,31 +164,27 @@ void mcg505_poll(void)
                 continue;
             }
 
-            /* 3. 收齐整帧后执行校验 */
+            /* 收齐一完整帧 */
             if (rx_idx == frame_len)
             {
-                /* 地址码必须为 0x00 */
-                if (rx_buf[3] == MCG505_ADDR)
-                {
-                    uint16_t calc_crc = mcg505_crc16(rx_buf, (uint16_t)(frame_len - 2U));
-                    uint16_t rx_crc   = ((uint16_t)rx_buf[frame_len - 2U] << 8U) | rx_buf[frame_len - 1U];
+                uint16_t calc_crc = mcp406_crc16(rx_buf, (uint16_t)(frame_len - 2U));
+                uint16_t rx_crc   = ((uint16_t)rx_buf[frame_len - 2U] << 8U) | rx_buf[frame_len - 1U];
 
-                    if (calc_crc == rx_crc)
+                if (calc_crc == rx_crc)
+                {
+                    handle_frame(rx_buf[2], &rx_buf[3], (uint16_t)(frame_len - 5U));
+                    rx_idx = 0U;
+                }
+                else
+                {
+                    /* CRC 不符：丢弃首字节重新同步 */
+                    uint16_t k;
+                    for (k = 1U; k < rx_idx; k++)
                     {
-                        /* 提取：标识符位于 rx_buf[4]，数据区位于 rx_buf[5]，长度为 frame_len - 7 */
-                        handle_frame(rx_buf[4], &rx_buf[5], (uint16_t)(frame_len - 7U));
-                        rx_idx = 0U;
-                        continue;
+                        rx_buf[k - 1U] = rx_buf[k];
                     }
+                    rx_idx--;
                 }
-
-                /* 校验失败：丢弃首字节并向后滑动重试 */
-                uint16_t k;
-                for (k = 1U; k < rx_idx; k++)
-                {
-                    rx_buf[k - 1U] = rx_buf[k];
-                }
-                rx_idx--;
             }
         }
     }
@@ -250,61 +192,61 @@ void mcg505_poll(void)
 
 /* ----------------------------- 对外接口 ----------------------------- */
 
-void mcg505_init(void)
+void mcp406_init(void)
 {
-    /*
-     * 预制报文（CRC-16 预先精确校验通过）：
-     * 1. 设置安装方式为 Y轴朝下180° (Flag=3, Val=23=0x17): AA 55 09 00 07 03 17 1F BD
-     * 2. 设置输出数据组件为 方位(1)/俯仰(2)/横滚(3):       AA 55 0B 00 03 03 01 02 03 2B 1C
-     * 3. 开启 10Hz 连续广播输出:                         AA 55 07 00 0D F1 89
-     */
-    static const uint8_t CMD_SET_MOUNT[]  = {0xAA, 0x55, 0x09, 0x00, 0x07, 0x03, 0x17, 0x1F, 0xBD};
-    static const uint8_t CMD_SET_COMPS[]  = {0xAA, 0x55, 0x0B, 0x00, 0x03, 0x03, 0x01, 0x02, 0x03, 0x2B, 0x1C};
-    static const uint8_t CMD_START_CONT[] = {0xAA, 0x55, 0x07, 0x00, 0x0D, 0xF1, 0x89};
+    /* 预制指令报文 */
+    static const uint8_t CMD_SET_MOUNT[]   = {0x00, 0x07, 0x06, 0x0A, 0x17, 0x6E, 0x90}; /* Y轴朝下180° */
+    static const uint8_t CMD_SET_COMPS[]   = {0x00, 0x09, 0x03, 0x03, 0x05, 0x18, 0x19, 0xDF, 0xDE}; /* 方位/俯仰/横滚 */
+    static const uint8_t CMD_START_CONT[]  = {0x00, 0x05, 0x15, 0xBD, 0x61}; /* 10Hz 广播输出 */
+    static const uint8_t CMD_SAVE[]        = {0x00, 0x05, 0x09, 0x6E, 0xDC}; /* 保存至 EEPROM */
 
     bsp_pwr_compass(true);
-    bsp_uart_init(MCG505_UART, 38400U); /* MCG505 出厂默认 38400 波特率 */
+    bsp_uart_init(MCP406_UART, 38400U); /* MCP-406 默认 38400 波特率 */
 
-    vTaskDelay(pdMS_TO_TICKS(350U)); /* 等待罗盘上电初始化稳定 */
-    bsp_uart_flush_rx(MCG505_UART);
+    vTaskDelay(pdMS_TO_TICKS(350U)); /* 等待罗盘上电初始化完成 */
+    bsp_uart_flush_rx(MCP406_UART);
 
-    /* 1. 设置机械安装方式为：Y 轴朝下 180° */
+    /* 1. 设置安装方式为：Y 轴朝下 180° */
     send_cmd(CMD_SET_MOUNT, sizeof(CMD_SET_MOUNT));
     vTaskDelay(pdMS_TO_TICKS(50U));
 
-    /* 2. 设置输出数据组件为 方位角、俯仰角、横滚角 */
+    /* 2. 保存安装方式配置到 EEPROM */
+    send_cmd(CMD_SAVE, sizeof(CMD_SAVE));
+    vTaskDelay(pdMS_TO_TICKS(50U));
+
+    /* 3. 设置输出数据组件为 方位角、俯仰角、横滚角 */
     send_cmd(CMD_SET_COMPS, sizeof(CMD_SET_COMPS));
     vTaskDelay(pdMS_TO_TICKS(50U));
 
-    /* 3. 开启 10Hz 广播模式（内部自动持久化，下次上电自动广播） */
+    /* 4. 开启 10Hz 广播模式（下次上电自动广播） */
     send_cmd(CMD_START_CONT, sizeof(CMD_START_CONT));
     vTaskDelay(pdMS_TO_TICKS(50U));
 
-    bsp_uart_flush_rx(MCG505_UART);
-    memset(&s_mcg505_data, 0, sizeof(s_mcg505_data));
+    bsp_uart_flush_rx(MCP406_UART);
+    memset(&s_mcp406_data, 0, sizeof(s_mcp406_data));
     memset(&s_cal_state, 0, sizeof(s_cal_state));
     s_cal_state.cal_score = -1.0f;
 }
 
-void mcg505_power_ctl(bool on)
+void mcp406_power_ctl(bool on)
 {
     bsp_pwr_compass(on);
     if (on)
     {
         /* 重新上电后等待模块启动，刷新接收缓存 */
         vTaskDelay(pdMS_TO_TICKS(300U));
-        bsp_uart_flush_rx(MCG505_UART);
+        bsp_uart_flush_rx(MCP406_UART);
     }
 }
 
-bool mcg505_self_check(uint32_t timeout_ms)
+bool mcp406_self_check(uint32_t timeout_ms)
 {
     uint32_t start = xTaskGetTickCount();
 
     while ((xTaskGetTickCount() - start) < pdMS_TO_TICKS(timeout_ms))
     {
-        mcg505_poll();
-        if (s_mcg505_data.tick_angle != 0U)
+        mcp406_poll();
+        if (s_mcp406_data.tick_angle != 0U)
         {
             return true;
         }
@@ -313,72 +255,84 @@ bool mcg505_self_check(uint32_t timeout_ms)
     return false;
 }
 
-const mcg505_data_t* mcg505_get_data(void)
+const mcp406_data_t* mcp406_get_data(void)
 {
-    return &s_mcg505_data;
+    return &s_mcp406_data;
 }
 
-const mcg505_cal_state_t* mcg505_get_cal_state(void)
+const mcp406_cal_state_t* mcp406_get_cal_state(void)
 {
     return &s_cal_state;
 }
 
-bool mcg505_is_alive(uint32_t timeout_ms)
+bool mcp406_is_alive(uint32_t timeout_ms)
 {
-    if (s_mcg505_data.tick_angle == 0U)
+    if (s_mcp406_data.tick_angle == 0U)
     {
         return false;
     }
-    return (xTaskGetTickCount() - s_mcg505_data.tick_angle) < pdMS_TO_TICKS(timeout_ms);
+    return (xTaskGetTickCount() - s_mcp406_data.tick_angle) < pdMS_TO_TICKS(timeout_ms);
 }
 
-void mcg505_start_mag_cal(void)
+void mcp406_start_mag_cal(void)
 {
-    /* 开始磁场空间手动校准（0x0F, 模式 1: 空间手动校准）：AA 55 08 00 0F 01 D4 93 */
-    static const uint8_t CMD_START_MAG_CAL[] = {0xAA, 0x55, 0x08, 0x00, 0x0F, 0x01, 0xD4, 0x93};
+    /* TCM 5 型 空间手动校准指令（0x0A，参数 10）：00 09 0A 00 00 00 0A AF 06 */
+    static const uint8_t CMD_START_MAG_CAL[] = {0x00, 0x09, 0x0A, 0x00, 0x00, 0x00, 0x0A, 0xAF, 0x06};
 
-    s_cal_state.sample_count = 1U; /* 手册明确说明：发送开始校准指令后自动采集第 1 组数据并返回编号 1 */
+    s_cal_state.sample_count = 1U; /* 手册明确说明：发送开始校准指令后自动采集第1组数据并返回编号1 */
     s_cal_state.cal_score    = -1.0f;
     s_cal_state.score_valid  = false;
 
     send_cmd(CMD_START_MAG_CAL, sizeof(CMD_START_MAG_CAL));
-    LOGI("mcg505: start mag space manual calibration sent (init count=1)\r\n");
+    LOGI("mcp406: start mag space manual calibration sent (init count=1)\r\n");
 }
 
-void mcg505_take_sample(void)
+void mcp406_take_sample(void)
 {
-    /* 单次采样指令 TakeUserCalSample (0x11): AA 55 07 00 11 22 34 */
-    static const uint8_t CMD_TAKE_SAMPLE[] = {0xAA, 0x55, 0x07, 0x00, 0x11, 0x22, 0x34};
+    /* 单次采样指令 TakeUserCalSample (0x1F): 00 05 1F 1C 2B */
+    static const uint8_t CMD_TAKE_SAMPLE[] = {0x00, 0x05, 0x1F, 0x1C, 0x2B};
 
     send_cmd(CMD_TAKE_SAMPLE, sizeof(CMD_TAKE_SAMPLE));
-    LOGI("mcg505: take sample command sent\r\n");
+    LOGI("mcp406: take sample command sent\r\n");
 }
 
-void mcg505_stop_cal(void)
+void mcp406_stop_cal(void)
 {
-    /* 停止校准指令 StopCal (0x10): AA 55 07 00 10 32 15 */
-    static const uint8_t CMD_STOP_CAL[] = {0xAA, 0x55, 0x07, 0x00, 0x10, 0x32, 0x15};
+    /* 停止校准指令 StopCal (0x0B): 00 05 0B 4E 9E */
+    static const uint8_t CMD_STOP_CAL[] = {0x00, 0x05, 0x0B, 0x4E, 0x9E};
 
     send_cmd(CMD_STOP_CAL, sizeof(CMD_STOP_CAL));
-    LOGI("mcg505: stop cal command sent\r\n");
+    LOGI("mcp406: stop cal command sent\r\n");
 }
 
-void mcg505_factory_reset(void)
+void mcp406_save(void)
 {
-    /* 恢复出厂校准参数 FactoryRest (0x14): AA 55 07 00 14 72 91 */
-    static const uint8_t CMD_RST_CAL[]    = {0xAA, 0x55, 0x07, 0x00, 0x14, 0x72, 0x91};
-    static const uint8_t CMD_SET_MOUNT[]  = {0xAA, 0x55, 0x09, 0x00, 0x07, 0x03, 0x17, 0x1F, 0xBD}; /* Y轴朝下180° */
-    static const uint8_t CMD_SET_COMPS[]  = {0xAA, 0x55, 0x0B, 0x00, 0x03, 0x03, 0x01, 0x02, 0x03, 0x2B, 0x1C};
-    static const uint8_t CMD_START_CONT[] = {0xAA, 0x55, 0x07, 0x00, 0x0D, 0xF1, 0x89};             /* 10Hz 广播 */
+    /* 保存指令 Save (0x09): 00 05 09 6E DC */
+    static const uint8_t CMD_SAVE[] = {0x00, 0x05, 0x09, 0x6E, 0xDC};
 
-    send_cmd(CMD_RST_CAL, sizeof(CMD_RST_CAL));
+    send_cmd(CMD_SAVE, sizeof(CMD_SAVE));
+    LOGI("mcp406: save command sent to EEPROM\r\n");
+}
+
+void mcp406_factory_reset(void)
+{
+    /* 恢复磁力计与加速度计出厂参数 */
+    static const uint8_t CMD_RST_MAG[]   = {0x00, 0x05, 0x1D, 0x3C, 0x69};
+    static const uint8_t CMD_RST_ACC[]   = {0x00, 0x05, 0x24, 0x9B, 0x13};
+    static const uint8_t CMD_SET_MOUNT[] = {0x00, 0x07, 0x06, 0x0A, 0x17, 0x6E, 0x90}; /* Y轴朝下180° */
+    static const uint8_t CMD_START_CONT[]= {0x00, 0x05, 0x15, 0xBD, 0x61}; /* 10Hz 广播 */
+    static const uint8_t CMD_SAVE[]      = {0x00, 0x05, 0x09, 0x6E, 0xDC};
+
+    send_cmd(CMD_RST_MAG, sizeof(CMD_RST_MAG));
+    vTaskDelay(pdMS_TO_TICKS(100U));
+    send_cmd(CMD_RST_ACC, sizeof(CMD_RST_ACC));
     vTaskDelay(pdMS_TO_TICKS(100U));
     send_cmd(CMD_SET_MOUNT, sizeof(CMD_SET_MOUNT));
     vTaskDelay(pdMS_TO_TICKS(50U));
-    send_cmd(CMD_SET_COMPS, sizeof(CMD_SET_COMPS));
-    vTaskDelay(pdMS_TO_TICKS(50U));
     send_cmd(CMD_START_CONT, sizeof(CMD_START_CONT));
     vTaskDelay(pdMS_TO_TICKS(50U));
+    send_cmd(CMD_SAVE, sizeof(CMD_SAVE));
+    vTaskDelay(pdMS_TO_TICKS(50U));
 
-    LOGI("mcg505: factory reset and re-configured\r\n");
+    LOGI("mcp406: factory reset and re-configured\r\n");
 }

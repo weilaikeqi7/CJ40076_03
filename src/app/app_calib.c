@@ -1,6 +1,6 @@
 /**
  * @file app_calib.c
- * @brief 校准与补偿设置状态机实现（适配 MCG505 型全国产三维电子罗盘）
+ * @brief 校准与补偿设置状态机实现（适配 MCP-406-TTL 电子罗盘）
  */
 #include "app_calib.h"
 
@@ -25,17 +25,17 @@ static bool     s_cal_done          = false;
 /* 进入校准前确保电子罗盘已供电并处于就绪状态 */
 static void ensure_compass_on(void)
 {
-    mcg505_power_ctl(true);
+    mcp406_power_ctl(true);
 }
 
 static bool is_score_normal(float score)
 {
     /*
-     * MCG505 手册评分标准：
-     *   < 0.168 优，0.168~0.248 良，0.248~0.328 中，0.328~0.36 差
-     *   > 0.36 或 99.9 分为外界强干扰异常得分
+     * 手册评分标准：
+     *   < 0.22 优，0.22~0.42 良，0.42~0.72 中，0.72~1.02 差
+     *   35/99.9/200/400 或 > 1.02 为异常得分
      */
-    return (score > 0.0f && score <= 0.36f);
+    return (score > 0.0f && score <= 1.02f);
 }
 
 static int16_t* page_ptr(void)
@@ -122,7 +122,7 @@ bool calib_handle_key(const app_key_event_t* evt)
                 s_cal_score         = -1.0f;
                 s_cal_done          = false;
 
-                mcg505_start_mag_cal();
+                mcp406_start_mag_cal();
                 state = CALIB_MAG;
                 /* 注意：磁场校准中不置 calib_mode=true，保持模式键多击检测生效以接收6击退出事件 */
                 LOGI("calib: mag space manual calib started (5-clicks), count=1\r\n");
@@ -138,9 +138,9 @@ bool calib_handle_key(const app_key_event_t* evt)
 
             /* 八击（加速度校准）与九击（角度校准）已彻底删除，不作响应 */
 
-            case 10: /* 十击：MCG505 罗盘与主控补偿恢复出厂设置 */
+            case 10: /* 十击：MCP-406 罗盘与主控补偿恢复出厂设置 */
                 ensure_compass_on();
-                mcg505_factory_reset();
+                mcp406_factory_reset();
                 work.pit_c01 = APP_DEFAULT_PIT_C01;
                 work.hit_c01 = APP_DEFAULT_HIT_C01;
                 work.her_c01 = APP_DEFAULT_HER_C01;
@@ -162,7 +162,7 @@ bool calib_handle_key(const app_key_event_t* evt)
         /* 1. 短按电源键：发送单次采样指令（未采样完成时有效） */
         if ((evt->evt & APP_KEY_EVT_POWER_SHORT) != 0U)
         {
-            const mcg505_cal_state_t* cs = mcg505_get_cal_state();
+            const mcp406_cal_state_t* cs = mcp406_get_cal_state();
             if (cs->score_valid)
             {
                 s_cal_done  = true;
@@ -171,7 +171,7 @@ bool calib_handle_key(const app_key_event_t* evt)
 
             if (!s_cal_done)
             {
-                mcg505_take_sample();
+                mcp406_take_sample();
                 LOGI("calib: take sample key pressed\r\n");
             }
             return true;
@@ -180,7 +180,7 @@ bool calib_handle_key(const app_key_event_t* evt)
         /* 2. 六击：退出磁场校准页面 */
         if ((evt->evt & APP_KEY_EVT_MODE_CLICKS) != 0U && evt->arg == 6U)
         {
-            const mcg505_cal_state_t* cs = mcg505_get_cal_state();
+            const mcp406_cal_state_t* cs = mcp406_get_cal_state();
             if (cs->score_valid)
             {
                 s_cal_done  = true;
@@ -189,23 +189,24 @@ bool calib_handle_key(const app_key_event_t* evt)
 
             if (!s_cal_done)
             {
-                /* 未采样完成收到 6 击：发送校准停止指令 */
-                mcg505_stop_cal();
-                LOGI("calib: calib not finished on 6-clicks, stop cal and exit\r\n");
+                /* 未采样完成收到 6 击：发送校准停止指令，不发送保存指令 */
+                mcp406_stop_cal();
+                LOGI("calib: calib not finished on 6-clicks, stop cal and exit without save\r\n");
             }
             else
             {
                 /* 采样完成收到 6 击：判定校准得分 */
                 if (is_score_normal(s_cal_score))
                 {
-                    /* 得分正常（<=0.36分）：MCG505 内部已自动持久化保存 */
-                    LOGI("calib: score normal (score=%d.%02d), calibration valid\r\n",
+                    /* 得分正常：发送保存指令至罗盘 EEPROM */
+                    mcp406_save();
+                    LOGI("calib: score normal (score=%d.%02d), save and exit\r\n",
                          (int)s_cal_score, (int)((s_cal_score - (int)s_cal_score) * 100));
                 }
                 else
                 {
-                    /* 得分异常：强磁干扰 */
-                    LOGI("calib: score abnormal (score=%d.%02d), calibration invalid\r\n",
+                    /* 得分异常：不发送保存指令 */
+                    LOGI("calib: score abnormal (score=%d.%02d), exit without save\r\n",
                          (int)s_cal_score, (int)((s_cal_score - (int)s_cal_score) * 100));
                 }
             }
@@ -273,7 +274,7 @@ bool calib_page_active(void)
 
 uint16_t calib_mag_cur_samples(void)
 {
-    const mcg505_cal_state_t* cs = mcg505_get_cal_state();
+    const mcp406_cal_state_t* cs = mcp406_get_cal_state();
     if (cs->sample_count > s_cal_cur_samples)
     {
         s_cal_cur_samples = (uint16_t)cs->sample_count;
@@ -288,7 +289,7 @@ uint16_t calib_mag_total_samples(void)
 
 bool calib_mag_get_score(float* out_score)
 {
-    const mcg505_cal_state_t* cs = mcg505_get_cal_state();
+    const mcp406_cal_state_t* cs = mcp406_get_cal_state();
     if (cs->score_valid)
     {
         s_cal_done  = true;
