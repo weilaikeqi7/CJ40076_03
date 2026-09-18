@@ -16,8 +16,8 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 
-/** FR 交流方波频率（62Hz，满足 P1237 32~96Hz 要求） */
-#define BSP_TIMER_FR_FREQ_HZ 62U
+/** FR 交流方波频率（50HZ，满足 P1237 40~128Hz 要求） */
+#define BSP_TIMER_FR_FREQ_HZ 50U
 
 /** FR 输出引脚：PB14 */
 #define BSP_TIMER_FR_PORT GPIOB

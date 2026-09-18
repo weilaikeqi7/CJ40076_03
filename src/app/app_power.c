@@ -114,7 +114,7 @@ void app_power_shutdown(void)
 
     lcd_power_off();            /* 先 DISP=0 再断屏电 */
     ranger_power_ctl(false);    /* 测距机下电 */
-    mcp406_power_ctl(false);    /* 电子罗盘下电 */
+    mcg505_power_ctl(false);    /* 电子罗盘下电 */
     gnss_power_ctl(false);      /* 卫星定位下电 */
     app_thermal_off();          /* 加热丝强制切断 */
 
