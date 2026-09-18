@@ -14,6 +14,8 @@
 #ifndef APP_CONFIG_H
 #define APP_CONFIG_H
 
+#include "compass_config.h"
+
 /* ------------------------------ 按键 ------------------------------ */
 #define APP_KEY_SCAN_MS        10U   /* 扫描周期 */
 #define APP_KEY_DEBOUNCE_MS    30U   /* 消抖 */
@@ -32,10 +34,17 @@
 #define APP_RANGE_INVALID_INT 0xFFFFU
 
 /* ------------------------------ 姿态/罗盘 ------------------------------ */
-/** 默认补偿（0.01 度单位）：PIt=0.00°，HIt=+90.00°，HEr=0.00° */
+/** Installed-model defaults (0.01 degrees); Flash overrides these when valid. */
 #define APP_DEFAULT_PIT_C01 0
+#if COMPASS_MODEL == COMPASS_MODEL_JY901B
 #define APP_DEFAULT_HIT_C01 9000
+#else /* MCP406 and MCG505 feature defaults */
+#define APP_DEFAULT_HIT_C01 0
+#endif
 #define APP_DEFAULT_HER_C01 0
+
+/** MCP406/MCG505 manual magnetic calibration sample target. */
+#define APP_MAG_CAL_TOTAL_SAMPLES 12U
 
 /** 补偿范围（0.01 度）：PIt ±90°，HIt/HEr ±180° */
 #define APP_PIT_MAX_C01 9000

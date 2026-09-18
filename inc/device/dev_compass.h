@@ -1,9 +1,6 @@
 /**
  * @file dev_compass.h
- * @brief JY901B 姿态传感器设备接口（USART2，9600 8N1）
- *
- * JY901B 使用 0x55 帧头、TYPE、8 字节数据和 8 位累加和校验。
- * 本接口保留统一设备层文件名，但采用 JY901B 自身的寄存器校准流程。
+ * @brief Model-neutral compass device interface.
  */
 #ifndef DEV_COMPASS_H
 #define DEV_COMPASS_H
@@ -14,29 +11,43 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "compass_config.h"
 
 typedef struct
 {
-    float    heading;    /* JY901B Yaw，已归一化到 0~360° */
-    float    pitch;      /* JY901B Pitch，按本机安装方向换算 */
-    float    roll;       /* JY901B Roll */
-    uint32_t tick_angle; /* 最近一次收到角度帧的系统 tick */
-} jy901b_data_t;
+    float heading;       /* Installed heading in degrees, [0, 360). */
+    float pitch;         /* Installed pitch in degrees; JY sign converted in driver. */
+    float roll;
+    uint32_t tick_angle; /* Last complete valid attitude frame, zero if powered off. */
+} compass_data_t;
 
-void jy901b_power_ctl(bool on);
-bool jy901b_self_check(uint32_t timeout_ms);
-void jy901b_init(void);
-void jy901b_poll(void);
-const jy901b_data_t* jy901b_get_data(void);
-bool jy901b_is_alive(uint32_t timeout_ms);
+typedef struct
+{
+    uint32_t sample_count;
+    float cal_score;
+    bool score_valid; /* Finite score received, not necessarily acceptable to save. */
+} compass_cal_state_t;
 
-/* JY901B 校准流程：均为寄存器 CALSW/SAVE 操作，不产生采样点或评分。 */
-void jy901b_calib_mag_start(void);
-void jy901b_calib_mag_end(void);
-void jy901b_calib_accel(void);
-void jy901b_calib_angle_ref(void);
-void jy901b_calib_yaw_zero(void);
-void jy901b_factory_reset(void);
+const char* compass_model_name(void);
+void compass_power_ctl(bool on);
+void compass_init(void);
+void compass_poll(void);
+bool compass_self_check(uint32_t timeout_ms);
+bool compass_is_alive(uint32_t timeout_ms);
+const compass_data_t* compass_get_data(void);
+
+bool compass_mag_uses_samples(void);
+const compass_cal_state_t* compass_get_cal_state(void);
+void compass_calib_mag_start(void);
+void compass_calib_mag_end(void);
+void compass_calib_take_sample(void);
+bool compass_calib_score_valid(float score);
+/* Accepted commands advance from the key task via compass_step(), without long delays. */
+bool compass_factory_reset(void);
+bool compass_calib_accel(void);
+bool compass_calib_angle_ref(void);
+bool compass_is_busy(void);
+void compass_step(void);
 
 #ifdef __cplusplus
 }

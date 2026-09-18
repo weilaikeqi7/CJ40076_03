@@ -54,14 +54,14 @@ static void store_defaults(void)
 /** 将当前参数序列化并提交写入存储设备 */
 static bool store_commit(void)
 {
-    store_record_t rec;
+    store_record_t rec = {0};
 
     rec.magic    = STORE_MAGIC;
     rec.count    = cache_count;
     rec.pit_c01  = cache_offsets.pit_c01;
     rec.hit_c01  = cache_offsets.hit_c01;
     rec.her_c01  = cache_offsets.her_c01;
-    rec.reserved = 0U;
+    rec.reserved = (uint16_t)COMPASS_MODEL;
     rec.crc16    = crc16_ccitt((const uint8_t*)&rec, offsetof(store_record_t, crc16));
 
     return dev_storage_write_record(&rec, sizeof(rec));
@@ -77,10 +77,23 @@ void store_init(void)
     if (rec.magic == STORE_MAGIC &&
         rec.crc16 == crc16_ccitt((const uint8_t*)&rec, offsetof(store_record_t, crc16)))
     {
-        cache_count            = rec.count;
-        cache_offsets.pit_c01  = rec.pit_c01;
-        cache_offsets.hit_c01  = rec.hit_c01;
-        cache_offsets.her_c01  = rec.her_c01;
+        store_defaults();
+        cache_count = rec.count > APP_COUNT_MAX ? APP_COUNT_MAX : rec.count;
+        if (rec.reserved == (uint16_t)COMPASS_MODEL)
+        {
+            cache_offsets.pit_c01 = rec.pit_c01;
+            cache_offsets.hit_c01 = rec.hit_c01;
+            cache_offsets.her_c01 = rec.her_c01;
+        }
+        else
+        {
+            /* Legacy records have no model tag; never guess their installation offsets. */
+            LOGI("store: compass model changed/unknown; offsets reset, count retained\r\n");
+            if (!store_commit())
+            {
+                LOGI("store: failed to persist model defaults\r\n");
+            }
+        }
         LOGI("store: loaded count=%u pit=%d hit=%d her=%d\r\n", (unsigned int)cache_count,
              (int)cache_offsets.pit_c01, (int)cache_offsets.hit_c01, (int)cache_offsets.her_c01);
     }

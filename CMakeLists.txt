@@ -155,9 +155,24 @@ endif()
 # ==============================================================================
 # 7. 编译宏定义
 # ==============================================================================
+set(COMPASS_MODEL "JY901B" CACHE STRING "Compass model: JY901B, MCP406, MCG505")
+set_property(CACHE COMPASS_MODEL PROPERTY STRINGS JY901B MCP406 MCG505)
+string(TOUPPER "${COMPASS_MODEL}" COMPASS_MODEL_UPPER)
+if(COMPASS_MODEL_UPPER STREQUAL "JY901B")
+    set(COMPASS_MODEL_VALUE 1)
+elseif(COMPASS_MODEL_UPPER STREQUAL "MCP406")
+    set(COMPASS_MODEL_VALUE 2)
+elseif(COMPASS_MODEL_UPPER STREQUAL "MCG505")
+    set(COMPASS_MODEL_VALUE 3)
+else()
+    message(FATAL_ERROR "Unsupported COMPASS_MODEL: ${COMPASS_MODEL}")
+endif()
+message(STATUS "Compass model: ${COMPASS_MODEL_UPPER}")
+
 target_compile_definitions(${APP_TARGET} PRIVATE
     N32G4FR
     USE_STDPERIPH_DRIVER
+    COMPASS_MODEL=${COMPASS_MODEL_VALUE}
 )
 
 # ==============================================================================
