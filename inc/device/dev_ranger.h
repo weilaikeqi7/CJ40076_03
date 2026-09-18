@@ -68,6 +68,9 @@ typedef struct
 /** 上电（PB3 拉高）+ 串口初始化 + 等待 1.6s 电容充电。任务上下文调用 */
 void ranger_init(void);
 
+/** 控制测距机硬件供电 */
+void ranger_power_ctl(bool on);
+
 /** 下电（测距前请先 ranger_stop()） */
 void ranger_deinit(void);
 

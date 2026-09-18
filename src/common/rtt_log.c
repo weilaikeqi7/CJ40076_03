@@ -4,11 +4,16 @@
  */
 #include "rtt_log.h"
 
-#include "n32g4fr.h"
+#if defined(N32G4FR)
+#include "n32g4fr.h" // IWYU pragma: keep
+#elif defined(N32L40X)
+#include "n32l40x.h" // IWYU pragma: keep
+#else
+#error "未知的 N32 目标芯片，请在编译宏中定义 N32G4FR 或 N32L40X"
+#endif
 
 #include <stdarg.h>
 #include <stdio.h>
-#include <string.h>
 
 #define RTT_UP_BUF_SIZE 512U
 
@@ -82,7 +87,7 @@ void rtt_printf(const char* fmt, ...)
     va_list args;
 
     va_start(args, fmt);
-    (void)vsnprintf(buf, sizeof(buf), fmt, args); /* nano 库不支持 %f，调用方自行转整数 */
+    (void)vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
     buf[sizeof(buf) - 1U] = '\0';
 

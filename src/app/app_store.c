@@ -5,13 +5,11 @@
 #include "app_store.h"
 
 #include "app_config.h"
+#include "dev_storage.h"
 #include "rtt_log.h"
-
-#include "n32g4fr.h"
 
 #include <string.h>
 
-#define STORE_PAGE_ADDR 0x0807F800U /* 512KB Flash 最后一页（2KB） */
 #define STORE_MAGIC     0x43004A56UL /* "CJ"V 参数区标识 */
 
 typedef struct
@@ -53,13 +51,10 @@ static void store_defaults(void)
     cache_offsets.her_c01  = APP_DEFAULT_HER_C01;
 }
 
-/** 整页擦除 + 写入当前缓存 */
+/** 将当前参数序列化并提交写入存储设备 */
 static bool store_commit(void)
 {
     store_record_t rec;
-    const uint32_t* src;
-    uint32_t        addr;
-    uint32_t        i;
 
     rec.magic    = STORE_MAGIC;
     rec.count    = cache_count;
@@ -69,39 +64,23 @@ static bool store_commit(void)
     rec.reserved = 0U;
     rec.crc16    = crc16_ccitt((const uint8_t*)&rec, offsetof(store_record_t, crc16));
 
-    FLASH_Unlock();
-    if (FLASH_EraseOnePage(STORE_PAGE_ADDR) != FLASH_COMPL)
-    {
-        FLASH_Lock();
-        return false;
-    }
-
-    src  = (const uint32_t*)&rec;
-    addr = STORE_PAGE_ADDR;
-    for (i = 0U; i < sizeof(rec) / sizeof(uint32_t); i++)
-    {
-        if (FLASH_ProgramWord(addr, src[i]) != FLASH_COMPL)
-        {
-            FLASH_Lock();
-            return false;
-        }
-        addr += 4U;
-    }
-    FLASH_Lock();
-    return true;
+    return dev_storage_write_record(&rec, sizeof(rec));
 }
 
 void store_init(void)
 {
-    const store_record_t* rec = (const store_record_t*)STORE_PAGE_ADDR;
+    store_record_t rec;
 
-    if (rec->magic == STORE_MAGIC &&
-        rec->crc16 == crc16_ccitt((const uint8_t*)rec, offsetof(store_record_t, crc16)))
+    dev_storage_init();
+    dev_storage_read(0U, &rec, sizeof(rec));
+
+    if (rec.magic == STORE_MAGIC &&
+        rec.crc16 == crc16_ccitt((const uint8_t*)&rec, offsetof(store_record_t, crc16)))
     {
-        cache_count            = rec->count;
-        cache_offsets.pit_c01  = rec->pit_c01;
-        cache_offsets.hit_c01  = rec->hit_c01;
-        cache_offsets.her_c01  = rec->her_c01;
+        cache_count            = rec.count;
+        cache_offsets.pit_c01  = rec.pit_c01;
+        cache_offsets.hit_c01  = rec.hit_c01;
+        cache_offsets.her_c01  = rec.her_c01;
         LOGI("store: loaded count=%u pit=%d hit=%d her=%d\r\n", (unsigned int)cache_count,
              (int)cache_offsets.pit_c01, (int)cache_offsets.hit_c01, (int)cache_offsets.her_c01);
     }

@@ -1,9 +1,1 @@
-/cmake-build-*/
 /build/
-*.elf
-*.hex
-*.bin
-*.map
-*.lst
-*.d
-*.o

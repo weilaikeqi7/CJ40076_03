@@ -61,6 +61,12 @@ typedef struct
 /** 上电并初始化串口（115200 8N1） */
 void gnss_init(void);
 
+/**
+ * @brief 控制 GNSS 模块硬件供电，开启时自动等待稳定并刷新串口接收缓存
+ * @param on true 打开供电，false 关闭供电
+ */
+void gnss_power_ctl(bool on);
+
 /** 喂串口数据解析 NMEA，主循环周期调用 */
 void gnss_poll(void);
 

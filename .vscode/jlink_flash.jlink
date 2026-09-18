@@ -4,7 +4,7 @@ speed 4000
 rsettype 0
 r
 h
-loadfile cmake-build-debug-n32/CJ40076.hex
+loadfile build/CJ40076.hex
 r
 g
 exit

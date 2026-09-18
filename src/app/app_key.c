@@ -7,7 +7,7 @@
 #include "app_key.h"
 
 #include "app_config.h"
-#include "board.h"
+#include "dev_key.h"
 
 #define SCAN_MS APP_KEY_SCAN_MS
 
@@ -68,6 +68,7 @@ static void key_sample(key_state_t* ks, bool raw_down)
 
 void app_key_init(void)
 {
+    dev_key_init();
     key_power       = (key_state_t){0};
     key_mode        = (key_state_t){0};
     click_count     = 0U;
@@ -131,8 +132,8 @@ app_key_event_t app_key_scan(void)
 {
     app_key_event_t evt = {APP_KEY_EVT_NONE, 0U};
 
-    key_sample(&key_power, board_key_power_pressed());
-    key_sample(&key_mode, board_key_mode_pressed());
+    key_sample(&key_power, dev_key_raw_power_pressed());
+    key_sample(&key_mode, dev_key_raw_mode_pressed());
 
     /* 开机抑制：电源键首次松开前不产生任何事件 */
     if (!boot_armed)

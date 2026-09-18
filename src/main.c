@@ -1,25 +1,22 @@
 #include "main.h"
 
 #include "app.h"
-#include "board.h"
+#include "bsp_gpio.h"
+#include "bsp_power.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
-
-#include <stdint.h>
-
-#if defined(N32_EXPECT_FPU) && (N32_EXPECT_FPU == 1)
-#if (__FPU_USED != 1)
-#error "FPU was requested, but CMSIS reports __FPU_USED != 1. Check -mfpu and -mfloat-abi."
-#endif
-#endif
 
 int main(void)
 {
     BaseType_t ret;
 
-    /* 最先初始化 GPIO 并保持电源（含电源保持脚置高） */
-    board_gpio_init();
+    /* 配置中断优先级组 */
+    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_4);
+
+    /* 最先初始化 GPIO 并锁存电源保持，默认关闭各外设供电 */
+    bsp_gpio_init();
+    bsp_power_init();
 
     /* 启动核心驱动并完成自检 */
     app_system_init();
@@ -81,3 +78,4 @@ void assert_failed(const uint8_t* expr, const uint8_t* file, uint32_t line)
     Error_Handler();
 }
 #endif
+

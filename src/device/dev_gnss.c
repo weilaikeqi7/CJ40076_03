@@ -1,11 +1,11 @@
 /**
- * @file gnss.c
- * @brief BV-220 GNSS 模块驱动实现（NMEA0183 V4.10 行解析 + 异或校验）
+ * @file dev_gnss.c
+ * @brief BV-220 GNSS 模块设备驱动实现（NMEA0183 V4.10 行解析 + 异或校验）
  */
-#include "gnss.h"
+#include "dev_gnss.h"
 
-#include "board.h"
-#include "board_uart.h"
+#include "bsp_power.h"
+#include "bsp_uart.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -13,7 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define GNSS_UART BOARD_UART_GNSS
+#define GNSS_UART BSP_UART_GNSS
 #define GNSS_BAUD 115200U
 
 #define NMEA_LINE_MAX 96U
@@ -290,14 +290,14 @@ static void gnss_handle_line(char* line, int len)
  */
 static void gnss_send_cmd(const char* cmd)
 {
-    board_uart_write(GNSS_UART, cmd, strlen(cmd));
-    board_uart_write(GNSS_UART, "\r\n", 2U);
+    bsp_uart_write(GNSS_UART, cmd, strlen(cmd));
+    bsp_uart_write(GNSS_UART, "\r\n", 2U);
 }
 
 void gnss_init(void)
 {
-    board_gnss_power(true);
-    board_uart_init(GNSS_UART, GNSS_BAUD);
+    bsp_pwr_gnss(true);
+    bsp_uart_init(GNSS_UART, GNSS_BAUD);
 
     vTaskDelay(pdMS_TO_TICKS(200U));
 
@@ -322,8 +322,18 @@ void gnss_init(void)
     gnss_send_cmd("$POLCFGMSG,0,6,0"); /* 关闭 CLK */
     vTaskDelay(pdMS_TO_TICKS(50U));
 
-    board_uart_flush_rx(GNSS_UART);
+    bsp_uart_flush_rx(GNSS_UART);
     memset(&gnss_data, 0, sizeof(gnss_data));
+}
+
+void gnss_power_ctl(bool on)
+{
+    bsp_pwr_gnss(on);
+    if (on)
+    {
+        vTaskDelay(pdMS_TO_TICKS(100U));
+        bsp_uart_flush_rx(GNSS_UART);
+    }
 }
 
 void gnss_poll(void)
@@ -332,7 +342,7 @@ void gnss_poll(void)
     static uint8_t index = 0U;
     uint8_t        byte;
 
-    while (board_uart_read(GNSS_UART, &byte, 1U) == 1U)
+    while (bsp_uart_read(GNSS_UART, &byte, 1U) == 1U)
     {
         if (index == 0U && byte != '$')
         {

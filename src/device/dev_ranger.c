@@ -1,18 +1,18 @@
 /**
- * @file ranger.c
- * @brief DYC-15A 激光测距机驱动实现
+ * @file dev_ranger.c
+ * @brief DYC-15A 激光测距机设备驱动实现
  */
-#include "ranger.h"
+#include "dev_ranger.h"
 
-#include "board.h"
-#include "board_uart.h"
+#include "bsp_power.h"
+#include "bsp_uart.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
 
 #include <string.h>
 
-#define RANGER_UART BOARD_UART_RANGER
+#define RANGER_UART BSP_UART_RANGER
 #define RANGER_BAUD 115200U /* 出厂默认 */
 
 #define RANGER_HEAD0 0xEEU
@@ -78,7 +78,7 @@ static void ranger_send(uint8_t cmd, const uint8_t* params, uint8_t param_len)
     }
     frame[5 + param_len] = sum;
 
-    board_uart_write(RANGER_UART, frame, (size_t)(6U + param_len));
+    bsp_uart_write(RANGER_UART, frame, (size_t)(6U + param_len));
     last_tx_tick = xTaskGetTickCount();
 }
 
@@ -163,7 +163,7 @@ void ranger_poll(void)
     static uint8_t index = 0U;
     uint8_t        byte;
 
-    while (board_uart_read(RANGER_UART, &byte, 1U) == 1U)
+    while (bsp_uart_read(RANGER_UART, &byte, 1U) == 1U)
     {
         /* 帧头同步 */
         if (index == 0U)
@@ -224,12 +224,12 @@ void ranger_poll(void)
 
 void ranger_init(void)
 {
-    board_ranger_power(true);
-    board_uart_init(RANGER_UART, RANGER_BAUD);
+    bsp_pwr_ranger(true);
+    bsp_uart_init(RANGER_UART, RANGER_BAUD);
 
     /* POWER_ON 拉高后约 1.5s 驱动电容充电完成 */
     vTaskDelay(pdMS_TO_TICKS(1600U));
-    board_uart_flush_rx(RANGER_UART);
+    bsp_uart_flush_rx(RANGER_UART);
 
     range_q_head  = 0U;
     range_q_tail  = 0U;
@@ -237,11 +237,16 @@ void ranger_init(void)
     last_error    = 0xFFU;
 }
 
+void ranger_power_ctl(bool on)
+{
+    bsp_pwr_ranger(on);
+}
+
 void ranger_deinit(void)
 {
     ranger_range_stop();
     vTaskDelay(pdMS_TO_TICKS(100U));
-    board_ranger_power(false);
+    bsp_pwr_ranger(false);
 }
 
 void ranger_self_check(void)

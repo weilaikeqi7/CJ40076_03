@@ -134,8 +134,7 @@ typedef enum
 
 /**
  * @brief 最高位特殊段显示 1~3（value=0 或 0xFF 熄灭——该段物理上无法显示 0）。
- * @note  4 段笔画的排列与 1/2/3 字形表为推测值（见 lcd_map.c 注释），
- *        实物点亮核对后只需修改 lcd_map.c 中两张表。
+ * @note  4 段笔画的物理结构已由图纸和实测核实（三横连通段 + 右上 + 左下 + 右下）。
  */
 void lcd_hiseg_digit(lcd_hiseg_t group, uint8_t value);
 

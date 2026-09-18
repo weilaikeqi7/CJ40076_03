@@ -2,18 +2,16 @@
  * @file app_display.c
  * @brief LCD 业务渲染实现
  *
- * TODO（实物确认）：模式图标段号 LCD_ICON_SINGLE / LCD_ICON_CONT 暂无屏厂定义，
- * 暂用 S31/S32 占位，确定后改这两个宏即可。
  */
 #include "app_display.h"
 
 #include "app_config.h"
-#include "lcd.h"
-#include "lcd_map.h"
+#include "dev_display.h"
+#include "dev_display_map.h"
 
 #include <string.h>
 
-/** 模式图标（TODO 实物确认段号） */
+/** 模式图标 */
 #define LCD_ICON_SINGLE 31 /* S31 */
 #define LCD_ICON_CONT   32 /* S32 */
 
@@ -98,10 +96,10 @@ static void draw_x4_1(lcd_hiseg_t hiseg, uint8_t first_digit, uint8_t dot_sym, u
 
     if (!valid)
     {
-        lcd_hiseg_digit(hiseg, 0xFFU);
+        lcd_hiseg_digit(hiseg, 0xFFU); /* 千位特殊段无横杠段，无效时彻底熄灭 */
         for (i = 0U; i < 3U; i++)
         {
-            put_digit((uint8_t)(first_digit + i), -2);
+            put_digit((uint8_t)(first_digit + i), -2); /* 其余 3 位标准 7 段数码管显示横杠 "---" */
         }
         put_digit((uint8_t)(first_digit + 3U), -1);
         lcd_symbol(dot_sym, false);
@@ -400,7 +398,56 @@ void display_render(const disp_state_t* s)
 
     lcd_clear();
 
-    /* ---------------- 校准页（PIt/HIt/HEr） ---------------- */
+    /* ---------------- 磁场空间手动校准页（非全显） ---------------- */
+    if (s->page == DISP_PAGE_MAG_CAL)
+    {
+        /* 1. 顶行显示实时方位角 + 罗盘 */
+        uint32_t h_x1 = (uint32_t)s->heading_c01 / 10U;
+        draw_x3_1(LCD_HISEG_HEADING, 1, LCD_DOT_TOP, h_x1, s->att_valid);
+        lcd_symbol(LCD_DEG_TOP, s->att_valid);
+        draw_compass(s->heading_c01, s->att_valid);
+
+        /* 2. 中行显示实时俯仰角 */
+        draw_pitch(s->pitch_c01, s->att_valid);
+
+        /* 3. 第二行距离区：未完成显示横杠，采样点数完成返回得分时显示校准得分 */
+        if (!s->cal_score_valid)
+        {
+            draw_x4_1(LCD_HISEG_DIST, 4, LCD_SYM_DOT_ROW2, 0U, false);
+        }
+        else
+        {
+            if (s->cal_score >= 0.0f && s->cal_score < 10.0f)
+            {
+                uint32_t sc100 = (uint32_t)(s->cal_score * 100.0f + 0.5f);
+                put_digit(4, (int8_t)(sc100 / 100U));
+                lcd_symbol(LCD_SYM_DOT_ROW2, true);
+                put_digit(5, (int8_t)((sc100 / 10U) % 10U));
+                put_digit(6, (int8_t)(sc100 % 10U));
+                put_digit(7, -1);
+            }
+            else
+            {
+                uint32_t sc10 = (uint32_t)(s->cal_score * 10.0f + 0.5f);
+                draw_x4_1(LCD_HISEG_DIST, 4, LCD_SYM_DOT_ROW2, sc10, true);
+            }
+        }
+
+        /* 4. 底行高程区：显示已采样点数 */
+        lcd_print_uint(17, 4, s->cal_cur_samples, false);
+        lcd_symbol(LCD_SYM_UNIT_H, true);
+
+        /* 5. 底行测距计数区：显示总采样点数（默认 12） */
+        lcd_print_uint(21, 4, s->cal_total_samples, false);
+
+        /* 6. 电池电量与常驻指示 */
+        draw_battery(s->batt_level);
+
+        lcd_flush();
+        return;
+    }
+
+    /* ---------------- 补偿设置页（PIt/HIt/HEr） ---------------- */
     if (s->page != DISP_PAGE_NONE)
     {
         /* 补偿值显示在高程区（绝对值，0.1°） */
@@ -436,7 +483,7 @@ void display_render(const disp_state_t* s)
                                     s->mode == MEAS_MODE_TEST);
     lcd_symbol(LCD_ICON_CONT, s->mode == MEAS_MODE_CONT || s->mode == MEAS_MODE_TEST);
 
-    /* 顶行航向 + 罗盘（仅多功能/测试） */
+    /* 顶行航向 + 罗盘（仅多功能/测试上电使能；单次/连续罗盘不上电，彻底熄灭） */
     if (multi_mode)
     {
         uint32_t h_x1 = (uint32_t)s->heading_c01 / 10U;
@@ -444,11 +491,33 @@ void display_render(const disp_state_t* s)
         lcd_symbol(LCD_DEG_TOP, s->att_valid);
         draw_compass(s->heading_c01, s->att_valid);
     }
+    else
+    {
+        /* 单次/连续模式：熄灭顶行百位特殊段、数码管1~3、小数点、度数符与罗盘花 */
+        lcd_hiseg_digit(LCD_HISEG_HEADING, 0xFFU);
+        put_digit(1, -1);
+        put_digit(2, -1);
+        put_digit(3, -1);
+        lcd_symbol(LCD_DOT_TOP, false);
+        lcd_symbol(LCD_DEG_TOP, false);
+        draw_compass(0, false);
+    }
 
-    /* 中行俯仰（仅多功能/测试） */
+    /* 中行俯仰（仅多功能/测试上电使能；单次/连续罗盘不上电，彻底熄灭） */
     if (multi_mode)
     {
         draw_pitch(s->pitch_c01, s->att_valid);
+    }
+    else
+    {
+        /* 单次/连续模式：熄灭中行负号、P字母、数码管25~27、小数点与度数符 */
+        put_digit(25, -1);
+        put_digit(26, -1);
+        put_digit(27, -1);
+        lcd_symbol(LCD_DOT_MID, false);
+        lcd_symbol(LCD_DEG_MID, false);
+        lcd_symbol(LCD_SYM_MINUS_MID, false);
+        lcd_symbol(LCD_SYM_MID_P, false);
     }
 
     /* 第二行距离：F/E 交替 */
@@ -518,6 +587,33 @@ void display_render(const disp_state_t* s)
         }
         lcd_symbol(LCD_SYM_UNIT_H, true);
         lcd_symbol(LCD_SYM_UNIT_M_BOT, true);
+    }
+    else
+    {
+        /* 单次/连续模式：GNSS 模块不上电，底行大字经纬度与高程区域全部彻底熄灭 */
+        lcd_symbol(LCD_SYM_LOCATION, false);
+        lcd_symbol(LCD_SYM_TARGET, false);
+        draw_coord(0.0, false, false);
+        draw_x4_1(LCD_HISEG_ELEV, 17, LCD_DOT_BOT, 0U, false);
+        /* 将 draw_coord 和 draw_x4_1 产生的横杠彻底清除，保持完全留白熄灭 */
+        {
+            uint8_t d;
+            for (d = 8U; d <= 20U; d++)
+            {
+                put_digit(d, -1);
+            }
+        }
+        lcd_symbol(LCD_DEG_BIG, false);
+        lcd_symbol(LCD_MIN_SYM, false);
+        lcd_symbol(LCD_SEC_SYM, false);
+        lcd_symbol(LCD_DOT_BIG, false);
+        lcd_symbol(LCD_SYM_WIND_N, false);
+        lcd_symbol(LCD_SYM_WIND_S, false);
+        lcd_symbol(LCD_SYM_WIND_E, false);
+        lcd_symbol(LCD_SYM_WIND_W, false);
+        lcd_symbol(LCD_DOT_BOT, false);
+        lcd_symbol(LCD_SYM_UNIT_H, false);
+        lcd_symbol(LCD_SYM_UNIT_M_BOT, false);
     }
 
     /* 底行计数 21~24 */

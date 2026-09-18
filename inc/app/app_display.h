@@ -37,7 +37,8 @@ typedef enum
     DISP_PAGE_PIT,
     DISP_PAGE_HIT,
     DISP_PAGE_HER,
-    DISP_PAGE_FULL_ON, /* JY901B 内部校准中：全显 */
+    DISP_PAGE_MAG_CAL, /* 磁场空间手动校准页（非全显） */
+    DISP_PAGE_FULL_ON, /* 全显 */
 } disp_page_t;
 
 typedef struct
@@ -61,8 +62,14 @@ typedef struct
     uint32_t count;      /* 测量计数 0~9999 */
     uint8_t  batt_level; /* 1~4（4 段） */
 
-    disp_page_t page;          /* 校准页 */
+    disp_page_t page;           /* 校准页 */
     int16_t     page_value_c01; /* 当前页补偿值（0.01°） */
+
+    /* 磁场空间手动校准专用显示字段 */
+    uint16_t cal_cur_samples;   /* 已采样点数（显示在高程区） */
+    uint16_t cal_total_samples; /* 总采样点数（显示在测距计数区） */
+    float    cal_score;         /* 采样完成返回的校准得分 */
+    bool     cal_score_valid;   /* 得分是否有效（有效时在距离区显示得分） */
 } disp_state_t;
 
 void display_init(void);
