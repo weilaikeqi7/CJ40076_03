@@ -432,12 +432,13 @@ void display_render(const disp_state_t* s)
     /* ---------------- 补偿设置页（PIt/HIt/HEr） ---------------- */
     if (s->page != DISP_PAGE_NONE)
     {
-        /* 补偿值显示在高程区（绝对值，0.1°） */
+        /* 补偿值显示在高程区：数值区显示绝对值（0.1°），前置 H 段表示负号。 */
         uint32_t abs_x1 = (uint32_t)(s->page_value_c01 < 0 ? -(int32_t)s->page_value_c01
                                                            : (int32_t)s->page_value_c01) / 10U;
 
         draw_x4_1(LCD_HISEG_ELEV, 17, LCD_DOT_BOT, abs_x1, true);
-        lcd_symbol(LCD_SYM_UNIT_H, true);
+        /* PIt/HIt/HEr 均复用高程区前置 H 符号：小于 0 点亮，大于等于 0 熄灭。 */
+        lcd_symbol(LCD_SYM_UNIT_H, s->page_value_c01 < 0);
         lcd_symbol(LCD_SYM_UNIT_M_BOT, true);
 
         /* 实时生效值回到各自区域 */
