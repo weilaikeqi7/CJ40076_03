@@ -20,7 +20,7 @@ typedef struct
     int16_t  hit_c01;
     int16_t  her_c01;
     uint16_t reserved;
-    uint16_t crc16; /* 对 magic..her_c01（不含本字段） CRC16-CCITT */
+    uint16_t crc16; /* 覆盖 magic 至 reserved；不含 crc16 及结构体尾部填充。 */
 } store_record_t;
 
 static uint32_t      cache_count;
@@ -87,7 +87,7 @@ void store_init(void)
         }
         else
         {
-            /* Legacy records have no model tag; never guess their installation offsets. */
+            /* 旧记录没有型号标记，型号不匹配时保留计数并恢复当前型号默认补偿。 */
             LOGI("store: compass model changed/unknown; offsets reset, count retained\r\n");
             if (!store_commit())
             {

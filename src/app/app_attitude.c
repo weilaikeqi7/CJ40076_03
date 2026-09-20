@@ -1,6 +1,6 @@
 /**
  * @file app_attitude.c
- * @brief Attitude compensation for the compile-time selected compass.
+ * @brief 按编译时所选罗盘的统一姿态输出叠加主控补偿。
  */
 #include "app_attitude.h"
 
@@ -25,11 +25,13 @@ void attitude_update(void)
     int32_t h;
     int32_t p;
     compass_data_t data;
+    app_offsets_t applied_offsets;
     const compass_data_t* compass = &data;
 
     compass_poll();
     taskENTER_CRITICAL();
-    data = *compass_get_data();
+    compass_get_data_snapshot(&data);
+    applied_offsets = offsets;
     taskEXIT_CRITICAL();
 
     if (compass->tick_angle == 0U)
@@ -37,14 +39,10 @@ void attitude_update(void)
         last_frame_tick = 0U;
         return;
     }
-    if (compass->tick_angle == last_frame_tick)
-    {
-        return;
-    }
-    last_frame_tick = compass->tick_angle;
+    /* 即使没有新帧，也重新应用补偿值，使补偿页调节在下次轮询立即生效。 */
 
-    /* Installed pitch convention comes from the driver; add PIt and clamp. */
-    p = (int32_t)(compass->pitch * 100.0f) + offsets.pit_c01;
+    /* 驱动已完成安装方向的符号换算；这里只叠加 PIt 并限制到 ±90°。 */
+    p = (int32_t)(compass->pitch * 100.0f) + applied_offsets.pit_c01;
     if (p > 9000)
     {
         p = 9000;
@@ -53,10 +51,9 @@ void attitude_update(void)
     {
         p = -9000;
     }
-    pitch_c01 = p;
 
-    /* Add HIt + HEr to the installed heading and normalize to [0, 360). */
-    h = (int32_t)(compass->heading * 100.0f) + offsets.hit_c01 + offsets.her_c01;
+    /* 安装方向换算后的航向叠加 HIt、HEr，再归一化到 [0, 360)。 */
+    h = (int32_t)(compass->heading * 100.0f) + applied_offsets.hit_c01 + applied_offsets.her_c01;
     h %= APP_HEADING_PERIOD_C01;
     if (h < 0)
     {
@@ -66,7 +63,11 @@ void attitude_update(void)
     {
         h = APP_HEADING_MAX_C01;
     }
+    taskENTER_CRITICAL();
+    pitch_c01 = p;
     heading_c01 = h;
+    last_frame_tick = compass->tick_angle;
+    taskEXIT_CRITICAL();
 }
 
 bool attitude_valid(void)

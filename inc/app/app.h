@@ -26,6 +26,9 @@ void app_task_power(void* argument);   /* 优先级 1：电池电量分档与3.0
 /** 系统启动与多任务初始化入口 */
 void app_system_init(void);
 
+/** 关机专用：挂起调用者以外的全部业务任务；仅允许任务上下文调用。 */
+void app_stop_tasks(void);
+
 #ifdef __cplusplus
 }
 #endif

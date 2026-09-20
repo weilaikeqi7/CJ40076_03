@@ -81,6 +81,7 @@ void TIM3_IRQHandler(void)
     if (TIM_GetIntStatus(TIM3, TIM_INT_UPDATE) != RESET)
     {
         TIM_ClrIntPendingBit(TIM3, TIM_INT_UPDATE);
+        /* 此处读改写整个输出寄存器；同端口并发写入须由调用方协调。 */
         BSP_TIMER_FR_PORT->POD ^= BSP_TIMER_FR_PIN;
     }
 }

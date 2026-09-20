@@ -78,8 +78,8 @@ file(GLOB STDPERIPH_SOURCES CONFIGURE_DEPENDS
 
 set(PROJECT_SOURCES
     src/main.c
-    src/n32g4fr_it.c
-    src/syscalls.c
+    src/system/n32g4fr_it.c
+    src/system/syscalls.c
     src/common/rtt_log.c
 
     # BSP 驱动层
@@ -180,6 +180,8 @@ target_compile_definitions(${APP_TARGET} PRIVATE
 # ==============================================================================
 target_include_directories(${APP_TARGET} PRIVATE
     inc
+    inc/config
+    inc/system
     inc/bsp
     inc/device
     inc/app

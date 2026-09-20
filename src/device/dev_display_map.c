@@ -163,6 +163,7 @@ void lcd_print_digit(uint8_t digit, int8_t value)
     }
 }
 
+/* count 约定为 1~9，避免 uint32_t 的 10^count 溢出；这里只更新缓冲，不刷新硬件。 */
 void lcd_print_uint(uint8_t first_digit, uint8_t count, uint32_t value, bool leading_zero)
 {
     uint8_t  buf[10];

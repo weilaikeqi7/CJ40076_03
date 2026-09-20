@@ -19,6 +19,10 @@
 #define NMEA_LINE_MAX 96U
 
 static gnss_data_t gnss_data;
+static bool         gnss_powered;
+static uint32_t     gnss_generation;
+static TickType_t   gnss_ready_tick;
+static bool         gnss_settling;
 
 /* ------------------------------ 字段解析辅助 ------------------------------ */
 
@@ -222,48 +226,81 @@ static void gnss_handle_rmc(char* line)
 }
 
 /** $xxGGA,UTC,LAT,NS,LON,EW,QUAL,NUMSV,HDOP,ALT,M,GEOID,M,AGE,REFID*cs */
-static void gnss_handle_gga(char* line)
+static void gnss_handle_gga(char* line, uint32_t generation)
 {
-    char* fields[16];
-    int   n = nmea_split(line, fields, 16);
+    char*      fields[16];
+    int        n = nmea_split(line, fields, 16);
+    gnss_fix_t fix_quality;
+    uint8_t    sats_used;
+    float      hdop;
+    float      altitude_m;
+    double     latitude = 0.0;
+    double     longitude = 0.0;
+    bool       has_position;
+    uint32_t   tick_gga;
 
     if (n < 10)
     {
         return;
     }
 
-    /* 临界区原子提交 GGA 定位快照：防止 64 位 double (lat/lon) 在多任务并发读取时被截断撕裂 */
-    taskENTER_CRITICAL();
-    gnss_data.fix_quality = (gnss_fix_t)nmea_atou(fields[6]);
-    gnss_data.sats_used   = (uint8_t)nmea_atou(fields[7]);
-    gnss_data.hdop        = nmea_atof(fields[8]);
-    gnss_data.altitude_m  = nmea_atof(fields[9]);
-
-    /* 有效解算时更新坐标（目标坐标解算以 GGA 为准） */
-    if (gnss_data.fix_quality != GNSS_FIX_INVALID && fields[2][0] != '\0' && fields[4][0] != '\0')
+    /* 在临界区外完成解析，仅在下面的发布阶段加锁。 */
+    fix_quality = (gnss_fix_t)nmea_atou(fields[6]);
+    sats_used   = (uint8_t)nmea_atou(fields[7]);
+    hdop        = nmea_atof(fields[8]);
+    altitude_m  = nmea_atof(fields[9]);
+    has_position = fix_quality != GNSS_FIX_INVALID && fields[2][0] != '\0' && fields[4][0] != '\0';
+    if (has_position)
     {
-        double lat = nmea_coord_to_deg(fields[2]);
-        double lon = nmea_coord_to_deg(fields[4]);
+        latitude  = nmea_coord_to_deg(fields[2]);
+        longitude = nmea_coord_to_deg(fields[4]);
 
         if (fields[3][0] == 'S')
         {
-            lat = -lat;
+            latitude = -latitude;
         }
         if (fields[5][0] == 'W')
         {
-            lon = -lon;
+            longitude = -longitude;
         }
-        gnss_data.latitude  = lat;
-        gnss_data.longitude = lon;
+    }
+    tick_gga = xTaskGetTickCount();
+
+    /* 只在同一供电代次内提交，避免下电并发时发布过期语句。 */
+    taskENTER_CRITICAL();
+    if (!gnss_powered || generation != gnss_generation)
+    {
+        taskEXIT_CRITICAL();
+        return;
     }
 
-    gnss_data.tick_gga = xTaskGetTickCount();
+    /* 缺少坐标时不能沿用旧坐标冒充新定位。 */
+    gnss_data.fix_quality = has_position ? fix_quality : GNSS_FIX_INVALID;
+    gnss_data.sats_used   = sats_used;
+    gnss_data.hdop        = hdop;
+    gnss_data.altitude_m  = altitude_m;
+    if (has_position)
+    {
+        gnss_data.latitude  = latitude;
+        gnss_data.longitude = longitude;
+    }
+    gnss_data.tick_gga = tick_gga;
     taskEXIT_CRITICAL();
 }
 
-static void gnss_handle_line(char* line, int len)
+static void gnss_handle_line(char* line, int len, uint32_t generation)
 {
+    bool powered;
+
     if (!nmea_checksum_ok(line, len))
+    {
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    powered = gnss_powered && generation == gnss_generation;
+    taskEXIT_CRITICAL();
+    if (!powered)
     {
         return;
     }
@@ -275,7 +312,7 @@ static void gnss_handle_line(char* line, int len)
     }
     else if (len >= 6 && line[3] == 'G' && line[4] == 'G' && line[5] == 'A')
     {
-        gnss_handle_gga(line);
+        gnss_handle_gga(line, generation);
     }
     else
     {
@@ -322,28 +359,88 @@ void gnss_init(void)
     gnss_send_cmd("$POLCFGMSG,0,6,0"); /* 关闭 CLK */
     vTaskDelay(pdMS_TO_TICKS(50U));
 
+    taskENTER_CRITICAL();
     bsp_uart_flush_rx(GNSS_UART);
     memset(&gnss_data, 0, sizeof(gnss_data));
+    gnss_powered    = true;
+    gnss_generation++;
+    gnss_ready_tick = xTaskGetTickCount();
+    gnss_settling = false;
+    taskEXIT_CRITICAL();
 }
 
 void gnss_power_ctl(bool on)
 {
+    taskENTER_CRITICAL();
     bsp_pwr_gnss(on);
+    gnss_powered = on;
+    gnss_settling = on;
+    gnss_generation++;
     if (on)
     {
-        vTaskDelay(pdMS_TO_TICKS(100U));
+        gnss_ready_tick = xTaskGetTickCount() + pdMS_TO_TICKS(100U);
+    }
+    else
+    {
+        gnss_ready_tick = 0U;
+        memset(&gnss_data, 0, sizeof(gnss_data));
         bsp_uart_flush_rx(GNSS_UART);
     }
+    taskEXIT_CRITICAL();
 }
 
 void gnss_poll(void)
 {
-    static char    line[NMEA_LINE_MAX];
-    static uint8_t index = 0U;
+    static char     line[NMEA_LINE_MAX];
+    static uint8_t  index = 0U;
+    static uint32_t parser_generation;
+    bool           powered;
+    bool           settling;
+    uint32_t       generation;
     uint8_t        byte;
 
-    while (bsp_uart_read(GNSS_UART, &byte, 1U) == 1U)
+    taskENTER_CRITICAL();
+    powered    = gnss_powered;
+    generation = gnss_generation;
+    if (gnss_settling && (int32_t)(xTaskGetTickCount() - gnss_ready_tick) >= 0)
     {
+        gnss_settling = false;
+    }
+    settling = gnss_settling;
+    taskEXIT_CRITICAL();
+    /* 两次轮询之间也可能上下电，必须丢弃上一供电代次留下的半行。 */
+    if (parser_generation != generation)
+    {
+        index = 0U;
+        parser_generation = generation;
+    }
+    if (!powered || settling)
+    {
+        return;
+    }
+
+    for (;;)
+    {
+        bool     have_byte;
+        bool     current_powered;
+        uint32_t current_generation;
+
+        /* 每次读一个字节，避免与下电清空接收缓存发生竞态。 */
+        taskENTER_CRITICAL();
+        have_byte = bsp_uart_read(GNSS_UART, &byte, 1U) == 1U;
+        current_powered = gnss_powered;
+        current_generation = gnss_generation;
+        taskEXIT_CRITICAL();
+        if (!current_powered || current_generation != generation)
+        {
+            /* 供电代次变化后丢弃半行，防止重新上电时拼接旧语句。 */
+            index = 0U;
+            return;
+        }
+        if (!have_byte)
+        {
+            break;
+        }
         if (index == 0U && byte != '$')
         {
             continue; /* 等待行首 */
@@ -359,7 +456,7 @@ void gnss_poll(void)
             if (index > 0U)
             {
                 line[index] = '\0';
-                gnss_handle_line(line, index);
+                gnss_handle_line(line, index, generation);
                 index = 0U;
             }
             continue;
@@ -381,11 +478,35 @@ const gnss_data_t* gnss_get_data(void)
     return &gnss_data;
 }
 
+void gnss_get_fix_snapshot(gnss_fix_snapshot_t* out)
+{
+    if (out == NULL)
+    {
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    out->latitude    = gnss_data.latitude;
+    out->longitude   = gnss_data.longitude;
+    out->altitude_m  = gnss_data.altitude_m;
+    out->fix_quality = gnss_data.fix_quality;
+    out->tick_gga    = gnss_data.tick_gga;
+    taskEXIT_CRITICAL();
+}
+
 bool gnss_is_fixed(uint32_t timeout_ms)
 {
-    if (!gnss_data.valid || gnss_data.tick_rmc == 0U)
+    bool     valid;
+    uint32_t tick_rmc;
+
+    taskENTER_CRITICAL();
+    valid    = gnss_data.valid;
+    tick_rmc = gnss_data.tick_rmc;
+    taskEXIT_CRITICAL();
+
+    if (!valid || tick_rmc == 0U)
     {
         return false;
     }
-    return (xTaskGetTickCount() - gnss_data.tick_rmc) < pdMS_TO_TICKS(timeout_ms);
+    return (xTaskGetTickCount() - tick_rmc) < pdMS_TO_TICKS(timeout_ms);
 }

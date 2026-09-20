@@ -12,6 +12,7 @@ void dev_heater_init(void)
     bsp_pwm_set_duty(0U);
 }
 
+/* 这里只转换为 PWM 输出；温度有效性与电池电压保护由 app_thermal 决定。 */
 void dev_heater_set_power(uint16_t permille)
 {
     bsp_pwm_set_duty(permille);

@@ -37,7 +37,7 @@ uint32_t app_power_get_batt_mv(void);
  */
 uint8_t app_power_get_batt_lvl(void);
 
-/** True from the start of shutdown until reset; tasks must not restart devices. */
+/** 关机开始后保持为 true，直到复位；禁止任务再次开启外设或提交校准命令。 */
 bool app_power_is_shutting_down(void);
 
 /**

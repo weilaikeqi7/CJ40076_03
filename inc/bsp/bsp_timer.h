@@ -24,7 +24,8 @@ extern "C" {
 #define BSP_TIMER_FR_PIN  GPIO_PIN_14
 
 /**
- * @brief 初始化并启动 TIM3 更新中断，按 BSP_TIMER_FR_FREQ_HZ 翻转 FR 引脚
+ * @brief 初始化并启动 TIM3，以两倍 BSP_TIMER_FR_FREQ_HZ 的中断频率翻转 FR。
+ * @note 输出方波频率单位为 Hz；独占 TIM3 和 FR 引脚，启动时引脚先置低。
  */
 void bsp_timer_fr_start(void);
 

@@ -1,6 +1,6 @@
 /**
  * @file dev_compass.c
- * @brief Compile-time selected compass protocol and calibration commands.
+ * @brief 编译期所选罗盘的协议解析与校准命令。
  */
 #include "dev_compass.h"
 #include "bsp_power.h"
@@ -19,9 +19,11 @@ static compass_data_t s_data;
 static compass_cal_state_t s_cal;
 static uint8_t s_rx[RX_CAPACITY];
 static size_t s_rx_len;
-static bool s_powered;
+static volatile bool s_powered;
+static TickType_t s_ready_tick;
+static bool s_settling; /* 就绪后锁存，避免长期运行跨半个 Tick 周期被误判为未上电。 */
 
-/* Command timing is progressed by T_KEY, so every task continues watchdog reporting. */
+/* 命令时序由按键任务逐步推进，等待期间各任务仍能按期打卡。 */
 typedef struct
 {
     uint8_t bytes[12];
@@ -46,6 +48,12 @@ static const command_step_t s_accel[] = {
 static const command_step_t s_angle[] = {
     JY_CMD(0x69, 0x88, 0xB5, 200), JY_CMD(1, 8, 0, 3000), JY_CMD(0, 0, 0, 100),
 };
+static const command_step_t s_mag_start[] = {
+    JY_CMD(0x69, 0x88, 0xB5, 200), JY_CMD(1, 7, 0, 0),
+};
+static const command_step_t s_mag_end[] = {
+    JY_CMD(0x69, 0x88, 0xB5, 200), JY_CMD(1, 0, 0, 100), JY_CMD(0, 0, 0, 100),
+};
 #else
 #if COMPASS_MODEL == COMPASS_MODEL_MCP406
 static const command_step_t s_setup[] = {
@@ -66,6 +74,31 @@ static const command_step_t s_setup[] = {
 };
 static const command_step_t s_reset[] = {
     {{0xAA, 0x55, 7, 0, 0x14, 0x72, 0x91}, 7, 100},
+};
+#endif
+
+#if COMPASS_MODEL == COMPASS_MODEL_MCP406
+static const command_step_t s_mag_start[] = {
+    {{0, 9, 0x0A, 0, 0, 0, 0x0A, 0xAF, 0x06}, 9, 0},
+};
+static const command_step_t s_mag_sample[] = {
+    {{0, 5, 0x1F, 0x1C, 0x2B}, 5, 0},
+};
+static const command_step_t s_mag_stop[] = {
+    {{0, 5, 0x0B, 0x4E, 0x9E}, 5, 0},
+};
+static const command_step_t s_mag_save[] = {
+    {{0, 5, 9, 0x6E, 0xDC}, 5, 0},
+};
+#else
+static const command_step_t s_mag_start[] = {
+    {{0xAA, 0x55, 8, 0, 0x0F, 1, 0xD4, 0x93}, 8, 0},
+};
+static const command_step_t s_mag_sample[] = {
+    {{0xAA, 0x55, 7, 0, 0x11, 0x22, 0x34}, 7, 0},
+};
+static const command_step_t s_mag_stop[] = {
+    {{0xAA, 0x55, 7, 0, 0x10, 0x32, 0x15}, 7, 0},
 };
 #endif
 
@@ -105,25 +138,51 @@ static bool s_reconfigure;
 
 static void start_sequence(const command_step_t* steps, size_t count, bool reconfigure)
 {
+    taskENTER_CRITICAL();
     s_sequence = steps;
     s_sequence_count = count;
     s_sequence_index = 0;
     s_sent_tick = xTaskGetTickCount();
     s_wait_ticks = 0;
     s_reconfigure = reconfigure;
+    taskEXIT_CRITICAL();
 }
 
 bool compass_is_busy(void)
 {
-    return s_sequence != NULL;
+    bool busy;
+    taskENTER_CRITICAL();
+    busy = s_sequence != NULL;
+    taskEXIT_CRITICAL();
+    return busy;
+}
+
+bool compass_is_ready(void)
+{
+    bool ready;
+    taskENTER_CRITICAL();
+    if (s_settling && (int32_t)(xTaskGetTickCount() - s_ready_tick) >= 0)
+    {
+        s_settling = false;
+    }
+    ready = s_powered && !s_settling;
+    taskEXIT_CRITICAL();
+    return ready;
 }
 
 void compass_step(void)
 {
     const command_step_t* step;
-    if (s_sequence == NULL || !s_powered ||
-        (TickType_t)(xTaskGetTickCount() - s_sent_tick) < s_wait_ticks)
+    TickType_t now;
+
+    vTaskSuspendAll();
+    taskENTER_CRITICAL();
+    now = xTaskGetTickCount();
+    if (s_sequence == NULL || !compass_is_ready() ||
+        (TickType_t)(now - s_sent_tick) < s_wait_ticks)
     {
+        taskEXIT_CRITICAL();
+        (void)xTaskResumeAll();
         return;
     }
     if (s_sequence_index == s_sequence_count)
@@ -135,13 +194,19 @@ void compass_step(void)
         else
         {
             s_sequence = NULL;
+            taskEXIT_CRITICAL();
+            (void)xTaskResumeAll();
             return;
         }
     }
     step = &s_sequence[s_sequence_index++];
+    taskEXIT_CRITICAL();
+    /* 仅暂停任务切换，串口发送期间保持中断开启，避免丢失 GNSS 接收字节。
+     * 供电与命令接口仅供任务调用，因此关机不会插入此段固定长度发送。 */
     bsp_uart_write(COMPASS_UART, step->bytes, step->len);
     s_sent_tick = xTaskGetTickCount();
     s_wait_ticks = pdMS_TO_TICKS(step->wait_ms);
+    (void)xTaskResumeAll();
 }
 
 const char* compass_model_name(void)
@@ -157,22 +222,25 @@ const char* compass_model_name(void)
 
 void compass_power_ctl(bool on)
 {
+    taskENTER_CRITICAL();
     if (on == s_powered)
     {
+        taskEXIT_CRITICAL();
         return;
     }
-    taskENTER_CRITICAL();
     s_powered = on;
     s_rx_len = 0;
     memset(&s_data, 0, sizeof(s_data));
     s_sequence = NULL;
+    s_ready_tick = on ? xTaskGetTickCount() + pdMS_TO_TICKS(500U) : 0;
+    s_settling = on;
+    if (on)
+    {
+        start_sequence(s_setup, ARRAY_COUNT(s_setup), false);
+    }
     bsp_pwr_compass(on);
     bsp_uart_flush_rx(COMPASS_UART);
     taskEXIT_CRITICAL();
-    if (on)
-    {
-        vTaskDelay(pdMS_TO_TICKS(500U));
-    }
 }
 
 void compass_init(void)
@@ -185,8 +253,8 @@ void compass_init(void)
     compass_power_ctl(true);
     memset(&s_cal, 0, sizeof(s_cal));
     s_cal.cal_score = -1.0f;
-    start_sequence(s_setup, ARRAY_COUNT(s_setup), false);
-    /* Startup runs before IWDG activation; runtime calibration never uses this loop. */
+    /* 上电已排队配置命令；运行阶段通过 compass_step() 逐步完成。 */
+    /* 启动自检在开启看门狗之前运行，使用相同的非阻塞序列推进。 */
     while (compass_is_busy())
     {
         compass_step();
@@ -283,11 +351,10 @@ static void drop_rx(size_t count)
 void compass_poll(void)
 {
     uint8_t byte;
-    if (!s_powered) return;
-    while (bsp_uart_read(COMPASS_UART, &byte, 1) == 1)
+    for (;;)
     {
         taskENTER_CRITICAL();
-        if (!s_powered)
+        if (!compass_is_ready() || bsp_uart_read(COMPASS_UART, &byte, 1) != 1)
         {
             taskEXIT_CRITICAL();
             return;
@@ -309,7 +376,7 @@ void compass_poll(void)
             {
                 compass_data_t next;
                 next.roll = (float)(int16_t)((uint16_t)s_rx[2] | ((uint16_t)s_rx[3] << 8)) * (180.0f / 32768.0f);
-                /* Installation sign conversion occurs here, not again in app_attitude. */
+                /* 安装方向的符号换算只在此处执行，姿态应用层不再重复取反。 */
                 next.pitch = -(float)(int16_t)((uint16_t)s_rx[4] | ((uint16_t)s_rx[5] << 8)) * (180.0f / 32768.0f);
                 next.heading = -(float)(int16_t)((uint16_t)s_rx[6] | ((uint16_t)s_rx[7] << 8)) * (180.0f / 32768.0f);
                 if (next.heading < 0) next.heading += 360.0f;
@@ -332,8 +399,8 @@ void compass_poll(void)
             if (s_rx_len < len)
             {
 #if COMPASS_MODEL == COMPASS_MODEL_MCP406
-                /* Length-only framing can lock onto payload after a damaged frame.
-                 * Prefer a later complete, CRC-valid frame over an incomplete candidate. */
+                /* 仅靠长度定界可能在坏帧后误锁定数据区。
+                 * 若后方存在完整且 CRC 正确的帧，优先重新同步到该帧。 */
                 size_t offset;
                 bool found = false;
                 for (offset = 1; offset + 5 <= s_rx_len; ++offset)
@@ -373,10 +440,32 @@ void compass_poll(void)
 const compass_data_t* compass_get_data(void) { return &s_data; }
 const compass_cal_state_t* compass_get_cal_state(void) { return &s_cal; }
 
+void compass_get_data_snapshot(compass_data_t* out)
+{
+    if (out == NULL) return;
+    taskENTER_CRITICAL();
+    *out = s_data;
+    taskEXIT_CRITICAL();
+}
+
+void compass_get_cal_state_snapshot(compass_cal_state_t* out)
+{
+    if (out == NULL) return;
+    taskENTER_CRITICAL();
+    *out = s_cal;
+    taskEXIT_CRITICAL();
+}
+
 bool compass_is_alive(uint32_t timeout_ms)
 {
-    return s_powered && s_data.tick_angle != 0 &&
-           (TickType_t)(xTaskGetTickCount() - s_data.tick_angle) < pdMS_TO_TICKS(timeout_ms);
+    compass_data_t data;
+    bool powered;
+    taskENTER_CRITICAL();
+    powered = s_powered;
+    data = s_data;
+    taskEXIT_CRITICAL();
+    return powered && data.tick_angle != 0 &&
+           (TickType_t)(xTaskGetTickCount() - data.tick_angle) < pdMS_TO_TICKS(timeout_ms);
 }
 
 bool compass_self_check(uint32_t timeout_ms)
@@ -410,74 +499,69 @@ bool compass_calib_score_valid(float score)
 
 void compass_calib_mag_start(void)
 {
-#if COMPASS_MODEL == COMPASS_MODEL_JY901B
-    static const uint8_t unlock[] = {0xFF, 0xAA, 0x69, 0x88, 0xB5};
-    static const uint8_t cmd[] = {0xFF, 0xAA, 1, 7, 0};
-#elif COMPASS_MODEL == COMPASS_MODEL_MCP406
-    static const uint8_t cmd[] = {0, 9, 0x0A, 0, 0, 0, 0x0A, 0xAF, 0x06};
-#else
-    static const uint8_t cmd[] = {0xAA, 0x55, 8, 0, 0x0F, 1, 0xD4, 0x93};
-#endif
+    bool powered;
     taskENTER_CRITICAL();
+    powered = s_powered;
     s_cal.sample_count = compass_mag_uses_samples() ? 1U : 0U;
     s_cal.cal_score = -1.0f;
     s_cal.score_valid = false;
     taskEXIT_CRITICAL();
-#if COMPASS_MODEL == COMPASS_MODEL_JY901B
-    bsp_uart_write(COMPASS_UART, unlock, sizeof(unlock));
-    vTaskDelay(pdMS_TO_TICKS(200U));
-#endif
-    bsp_uart_write(COMPASS_UART, cmd, sizeof(cmd));
+    if (powered && !compass_is_busy())
+    {
+        start_sequence(s_mag_start, ARRAY_COUNT(s_mag_start), false);
+    }
 }
 
 void compass_calib_take_sample(void)
 {
-#if COMPASS_MODEL == COMPASS_MODEL_MCP406
-    static const uint8_t cmd[] = {0, 5, 0x1F, 0x1C, 0x2B};
-#elif COMPASS_MODEL == COMPASS_MODEL_MCG505
-    static const uint8_t cmd[] = {0xAA, 0x55, 7, 0, 0x11, 0x22, 0x34};
-#endif
 #if COMPASS_MODEL != COMPASS_MODEL_JY901B
-    if (!s_cal.score_valid) bsp_uart_write(COMPASS_UART, cmd, sizeof(cmd));
+    compass_cal_state_t cal;
+    bool powered;
+    taskENTER_CRITICAL();
+    powered = s_powered;
+    cal = s_cal;
+    taskEXIT_CRITICAL();
+    if (powered && !compass_is_busy() && !cal.score_valid)
+    {
+#if COMPASS_MODEL == COMPASS_MODEL_MCP406
+        start_sequence(s_mag_sample, ARRAY_COUNT(s_mag_sample), false);
+#else
+        start_sequence(s_mag_sample, ARRAY_COUNT(s_mag_sample), false);
+#endif
+    }
 #endif
 }
 
 void compass_calib_mag_end(void)
 {
-#if COMPASS_MODEL == COMPASS_MODEL_JY901B
-    static const uint8_t unlock[] = {0xFF, 0xAA, 0x69, 0x88, 0xB5};
-    static const uint8_t stop[] = {0xFF, 0xAA, 1, 0, 0};
-    static const uint8_t save[] = {0xFF, 0xAA, 0, 0, 0};
-    bsp_uart_write(COMPASS_UART, unlock, sizeof(unlock));
-    vTaskDelay(pdMS_TO_TICKS(200U));
-    bsp_uart_write(COMPASS_UART, stop, sizeof(stop));
-    vTaskDelay(pdMS_TO_TICKS(100U));
-    bsp_uart_write(COMPASS_UART, save, sizeof(save));
-#else
-#if COMPASS_MODEL == COMPASS_MODEL_MCP406
-    static const uint8_t stop[] = {0, 5, 0x0B, 0x4E, 0x9E};
-    static const uint8_t save[] = {0, 5, 9, 0x6E, 0xDC};
-#else
-    static const uint8_t stop[] = {0xAA, 0x55, 7, 0, 0x10, 0x32, 0x15};
-#endif
+    bool powered;
+#if COMPASS_MODEL != COMPASS_MODEL_JY901B
     compass_cal_state_t cal;
+#endif
     taskENTER_CRITICAL();
+    powered = s_powered;
+#if COMPASS_MODEL != COMPASS_MODEL_JY901B
     cal = s_cal;
+#endif
     taskEXIT_CRITICAL();
+    if (!powered || compass_is_busy()) return;
+#if COMPASS_MODEL == COMPASS_MODEL_JY901B
+    start_sequence(s_mag_end, ARRAY_COUNT(s_mag_end), false);
+#elif COMPASS_MODEL == COMPASS_MODEL_MCP406
     if (!cal.score_valid)
     {
-        bsp_uart_write(COMPASS_UART, stop, sizeof(stop));
+        start_sequence(s_mag_stop, ARRAY_COUNT(s_mag_stop), false);
     }
-#if COMPASS_MODEL == COMPASS_MODEL_MCP406
     else if (compass_calib_score_valid(cal.cal_score))
     {
-        bsp_uart_write(COMPASS_UART, save, sizeof(save));
+        start_sequence(s_mag_save, ARRAY_COUNT(s_mag_save), false);
+    }
+#else
+    if (!cal.score_valid)
+    {
+        start_sequence(s_mag_stop, ARRAY_COUNT(s_mag_stop), false);
     }
 #endif
-    /* MCG505 has no separate Save command: preserve its native persistence semantics. */
-#endif
-    /* Keep device power until UART transmission and parameter persistence can finish. */
-    vTaskDelay(pdMS_TO_TICKS(100U));
 }
 
 bool compass_factory_reset(void)

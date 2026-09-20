@@ -34,7 +34,8 @@
 #define RANGER_CMD_GATE_MIN   0xA2U
 #define RANGER_CMD_GATE_MAX   0xA4U
 
-#define RANGER_QUEUE_SIZE 4U
+/* 一次串口解析可能收到全部 16 个编号目标；环形队列额外保留一个空槽。 */
+#define RANGER_QUEUE_SIZE 17U
 static ranger_range_t     range_queue[RANGER_QUEUE_SIZE];
 static uint8_t            range_q_head;
 static uint8_t            range_q_tail;
@@ -42,28 +43,29 @@ static ranger_selfcheck_t selfcheck_result;
 static bool               selfcheck_new;
 static uint8_t            last_error = 0xFFU;
 static uint32_t           last_frame_tick;
+static uint32_t           last_tx_tick;
+static bool               tx_started;
+static uint8_t            rx_frame[RANGER_FRAME_MAX];
+static uint8_t            rx_index;
 
 /* ------------------------------ 命令发送 ------------------------------ */
 
-static void ranger_send(uint8_t cmd, const uint8_t* params, uint8_t param_len)
+static bool ranger_tx_ready(void)
 {
-    static uint32_t last_tx_tick;
+    return !tx_started ||
+        (xTaskGetTickCount() - last_tx_tick) >= pdMS_TO_TICKS(RANGER_CMD_GAP_MS);
+}
+
+static bool ranger_try_send(uint8_t cmd, const uint8_t* params, uint8_t param_len)
+{
     uint8_t frame[RANGER_FRAME_MAX];
     uint8_t len = (uint8_t)(2U + param_len); /* 设备码 + 命令码 + 参数 */
     uint8_t sum = (uint8_t)(RANGER_DEV + cmd);
     uint8_t i;
-    uint32_t now = xTaskGetTickCount();
 
-    /* 指令间最小间隔：模块逐条处理，背靠背发送会丢弃后一条（如实测的
-       "设多目标 + 单次测距"连发导致测距无响应） */
-    if (last_tx_tick != 0U)
+    if (!ranger_tx_ready())
     {
-        uint32_t elapsed = now - last_tx_tick;
-
-        if (elapsed < pdMS_TO_TICKS(RANGER_CMD_GAP_MS))
-        {
-            vTaskDelay(pdMS_TO_TICKS(RANGER_CMD_GAP_MS) - elapsed);
-        }
+        return false;
     }
 
     frame[0] = RANGER_HEAD0;
@@ -80,6 +82,18 @@ static void ranger_send(uint8_t cmd, const uint8_t* params, uint8_t param_len)
 
     bsp_uart_write(RANGER_UART, frame, (size_t)(6U + param_len));
     last_tx_tick = xTaskGetTickCount();
+    tx_started = true;
+    return true;
+}
+
+/* 保留独立旧命令接口的同步发送语义；测量状态机仅调用可取消的 try 接口，
+ * 不通过此等待路径。发送状态由同一调用任务独占，不支持并发发送。 */
+static void ranger_send(uint8_t cmd, const uint8_t* params, uint8_t param_len)
+{
+    while (!ranger_try_send(cmd, params, param_len))
+    {
+        vTaskDelay(1U);
+    }
 }
 
 /* ------------------------------ 响应解析 ------------------------------ */
@@ -159,9 +173,9 @@ static void ranger_handle_frame(uint8_t cmd, const uint8_t* params, uint8_t para
 
 void ranger_poll(void)
 {
-    static uint8_t frame[RANGER_FRAME_MAX];
-    static uint8_t index = 0U;
-    uint8_t        byte;
+    uint8_t* frame = rx_frame;
+    uint8_t index = rx_index;
+    uint8_t byte;
 
     while (bsp_uart_read(RANGER_UART, &byte, 1U) == 1U)
     {
@@ -218,6 +232,33 @@ void ranger_poll(void)
             }
         }
     }
+    rx_index = index;
+}
+
+void ranger_discard_ranges(void)
+{
+    bsp_uart_flush_rx(RANGER_UART);
+    rx_index = 0U;
+    range_q_head = 0U;
+    range_q_tail = 0U;
+}
+
+bool ranger_try_set_target_mode(ranger_target_t mode)
+{
+    uint8_t param = (uint8_t)mode;
+    return ranger_try_send(RANGER_CMD_TARGET, &param, 1U);
+}
+
+bool ranger_try_range_single(void)
+{
+    if (!ranger_tx_ready())
+    {
+        return false;
+    }
+    /* 清掉旧指令的缓存字节/半帧，防止污染新轮次。协议不带事务编号，
+     * 新指令发出后才到达的旧应答无法在软件中无歧义归属。 */
+    ranger_discard_ranges();
+    return ranger_try_send(RANGER_CMD_SINGLE, NULL, 0U);
 }
 
 /* ------------------------------ 对外接口 ------------------------------ */
@@ -235,6 +276,10 @@ void ranger_init(void)
     range_q_tail  = 0U;
     selfcheck_new = false;
     last_error    = 0xFFU;
+    last_frame_tick = 0U;
+    tx_started = false;
+    last_tx_tick = 0U;
+    rx_index = 0U;
 }
 
 void ranger_power_ctl(bool on)

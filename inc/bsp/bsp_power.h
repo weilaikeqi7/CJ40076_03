@@ -18,6 +18,7 @@ extern "C" {
 /** 初始化全部外设供电引脚为输出，默认全部断电 */
 void bsp_power_init(void);
 
+/* 以下开关须先调用 bsp_power_init；on=true 供电、false 断电，不等待电源稳定。 */
 void bsp_pwr_ranger(bool on);  /* 测距机电源开关（PB3，高有效） */
 void bsp_pwr_compass(bool on); /* 电子罗盘电源开关（PA8，高有效） */
 void bsp_pwr_gnss(bool on);    /* GNSS 电源开关（PB15，高有效） */

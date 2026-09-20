@@ -21,6 +21,8 @@ void app_thermal_init(void);
  * @brief 极低温自适应闭环温控步进执行（1秒周期调用）。
  *        读取 NTC 温度并结合当前带载电压 vbat_mv 执行阶梯控温与防冲击自保。
  * @param vbat_mv 当前带载滤波电池电压，单位 mV
+ * @note 须先初始化 ADC 和热管理模块；无效温度或欠压会在本次调用中关闭加热。
+ *       app_thermal_off 不锁定关闭状态，后续 step 可再次开启；关机时须停止周期调用。
  */
 void app_thermal_step(uint32_t vbat_mv);
 

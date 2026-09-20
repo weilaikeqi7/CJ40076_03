@@ -51,6 +51,7 @@ bool dev_key_raw_power_pressed(void)
     return (DEV_KEY_PORT->PID & DEV_KEY_POWER_PIN) == 0U;
 }
 
+/* 以调用次数累计稳定时间，并不读取时钟；原始状态每次变化都重新计时。 */
 static void update_filter(key_filter_t* kf, bool raw)
 {
     if (raw != kf->raw_last)

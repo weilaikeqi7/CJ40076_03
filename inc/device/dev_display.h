@@ -1,12 +1,12 @@
 /**
- * @file lcd.h
+ * @file dev_display.h
  * @brief P1237 段码屏底层驱动（238 段，四线串行接口）
  *
  * 接口信号（主板 P3 -> 显示板 H1）：
  *   DISP - PA6  显示使能（高有效；同时驱动显示板背光 LED）
  *   EI   - PA7  串行数据
  *   LP   - PB13 移位时钟（每 bit 一个正脉冲）
- *   FR   - PB14 交流方波，32~96Hz（TIM3 中断自动翻转，无需应用干预）
+ *   FR   - PB14 交流方波（TIM3 中断驱动，实际频率由 BSP_TIMER_FR_FREQ_HZ 配置）
  *
  * 数据格式（参考 DEMO240.C）：
  *   共 240bit = 30 字节，每字节 LSB 先发；
@@ -34,8 +34,8 @@ extern "C" {
 #define LCD_FR_FREQ_HZ 62U
 
 /**
- * @brief 初始化 LCD 接口 GPIO 与 FR 定时器（不上电、不使能显示）。
- *        调用前需 board_gpio_init()。
+ * @brief 初始化 LCD 接口 GPIO 并清空帧缓冲，不上电、不启动 FR。
+ * @note 屏幕上电前须完成 bsp_power_init() 和 lcd_init()；FR 在 lcd_power_on() 中启动。
  */
 void lcd_init(void);
 
@@ -62,7 +62,8 @@ void lcd_fill(void);
  */
 void lcd_set_raw(uint8_t y_pin, bool on);
 
-/** 把帧缓冲 30 字节移位写入屏（约 0.5ms），内容变化后调用一次即可 */
+/** 阻塞移出 30 字节；240 位各含两次约 2us 延时，另有 GPIO/循环及中断开销。
+ *  须先初始化；发送期间不得由其他任务改帧缓冲或切换屏电源。 */
 void lcd_flush(void);
 
 /** 帧缓冲直接访问（高级用法），随后调用 lcd_flush 生效 */

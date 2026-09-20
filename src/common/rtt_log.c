@@ -64,6 +64,7 @@ void rtt_write(const char* str)
     unsigned long wr;
     unsigned long rd;
 
+    /* 关中断保护写游标；末尾无条件开中断，不能在要求保持关中断的上下文调用。 */
     __disable_irq();
     while (*str != '\0')
     {

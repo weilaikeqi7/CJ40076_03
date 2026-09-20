@@ -37,12 +37,7 @@ static meas_mode_t cur_mode = MEAS_MODE_SINGLE;
 static app_geo_point_t target_near;
 static app_geo_point_t target_far;
 static bool            target_published; /* 已进入 TARGET 显示 */
-static bool            round_was_active;
-
-/* 激光测距发起瞬间的姿态快照（锁定瞄准瞬间的真实空间朝向，消除收尾静默期间手抖误差） */
-static int32_t         trigger_heading_c01;
-static int32_t         trigger_pitch_c01;
-static bool            trigger_att_valid;
+static uint32_t        displayed_round_id;
 
 static bool compass_on = false;
 static bool gnss_on    = false;
@@ -61,10 +56,30 @@ static bool gnss_on    = false;
 
 static volatile uint32_t s_task_alive_bits = 0U;
 
-static inline void app_mark_key_alive(void)  { s_task_alive_bits |= TASK_ALIVE_BIT_KEY; }
-static inline void app_mark_sens_alive(void) { s_task_alive_bits |= TASK_ALIVE_BIT_SENS; }
-static inline void app_mark_disp_alive(void) { s_task_alive_bits |= TASK_ALIVE_BIT_DISP; }
-static inline void app_mark_pwr_alive(void)  { s_task_alive_bits |= TASK_ALIVE_BIT_PWR; }
+static void app_mark_alive(uint32_t bit)
+{
+    taskENTER_CRITICAL();
+    s_task_alive_bits |= bit;
+    taskEXIT_CRITICAL();
+}
+
+static inline void app_mark_key_alive(void)  { app_mark_alive(TASK_ALIVE_BIT_KEY); }
+static inline void app_mark_sens_alive(void) { app_mark_alive(TASK_ALIVE_BIT_SENS); }
+static inline void app_mark_disp_alive(void) { app_mark_alive(TASK_ALIVE_BIT_DISP); }
+static inline void app_mark_pwr_alive(void)  { app_mark_alive(TASK_ALIVE_BIT_PWR); }
+
+static uint32_t app_take_alive_bits(void)
+{
+    uint32_t bits;
+    taskENTER_CRITICAL();
+    bits = s_task_alive_bits;
+    if ((bits & TASK_ALIVE_ALL) == TASK_ALIVE_ALL)
+    {
+        s_task_alive_bits = 0U;
+    }
+    taskEXIT_CRITICAL();
+    return bits;
+}
 
 /* ------------------------------ 供电调度 ------------------------------ */
 
@@ -127,20 +142,24 @@ static void mode_switch_next(void)
     LOGI("app: mode -> %d\r\n", (int)cur_mode);
 }
 
-static void on_measure_published(void)
+static void on_measure_published(const measure_result_t* res)
 {
-    const measure_result_t* res = measure_get_result();
-    uint32_t              count = store_get_count() + 1U;
+    taskENTER_CRITICAL();
+    if (!measure_result_is_current(res))
+    {
+        taskEXIT_CRITICAL();
+        return;
+    }
+    store_set_count_ram(store_get_count() + 1U); /* 与按键清零互斥 */
+    taskEXIT_CRITICAL();
 
-    store_set_count_ram(count); /* 计数 +1（RAM），关机/清零时才落 Flash */
-
-    if (cur_mode == MEAS_MODE_MULTI || cur_mode == MEAS_MODE_TEST)
+    if (res->mode == MEAS_MODE_MULTI || res->mode == MEAS_MODE_TEST)
     {
         /* 优先使用开火/触发瞬间捕获的姿态快照，消除测距收尾静默期间手抖引起的方位角漂移 */
         app_geo_point_t self;
-        bool att_ok = trigger_att_valid ? trigger_att_valid : attitude_valid();
-        int32_t use_heading = trigger_att_valid ? trigger_heading_c01 : attitude_heading_c01();
-        int32_t use_pitch   = trigger_att_valid ? trigger_pitch_c01 : attitude_pitch_c01();
+        bool att_ok = res->attitude_valid;
+        int32_t use_heading = res->heading_c01;
+        int32_t use_pitch   = res->pitch_c01;
 
         /* 使用局部变量在私有栈上计算完成，绝不在共享变量上“边算边写” */
         app_geo_point_t loc_near;
@@ -163,13 +182,16 @@ static void on_measure_published(void)
 
         /* 临界区原子提交：耗时 < 0.2 微秒，确保读取端绝对不会读到“写了一半”的数据 */
         taskENTER_CRITICAL();
-        target_near      = loc_near;
-        target_far       = loc_far;
-        target_published = loc_pub;
+        if (measure_result_is_current(res))
+        {
+            target_near      = loc_near;
+            target_far       = loc_far;
+            target_published = loc_pub;
+        }
         taskEXIT_CRITICAL();
 
         LOGI("app: multi published, near_valid=%d target_valid=%d (snapshot_att=%d)\r\n", (int)res->near_valid,
-             (int)target_near.valid, (int)trigger_att_valid);
+             (int)target_near.valid, (int)res->attitude_valid);
     }
 }
 
@@ -181,7 +203,7 @@ static void handle_key(const app_key_event_t* evt)
         app_power_shutdown();
     }
 
-    /* Calibration keys only set state/queue commands; execution follows power_apply. */
+    /* 校准按键仅提交状态与命令，停止测距并应用供电策略后再执行。 */
     if (calib_handle_key(evt))
     {
         /* 进入校准页/校准流程：停止测距 */
@@ -227,7 +249,7 @@ static void handle_key(const app_key_event_t* evt)
 
 static void startup_self_check(void)
 {
-    /* Initialize the selected model using its installed orientation/profile. */
+    /* 按编译时选择的罗盘型号配置安装方向、输出内容与广播速率。 */
     compass_init();
     compass_on = true;
 
@@ -294,9 +316,10 @@ void app_task_key(void* argument)
         {
             handle_key(&evt);
         }
-        /* State is established before power/commands; completion may release power. */
+        /* 先建立业务状态，再应用供电并推进校准；完成后重新评估是否断电。 */
         power_apply();
-        if (!app_power_is_shutting_down())
+        compass_step(); /* 上电配置独立推进，不因测距进行中而停滞 */
+        if (!app_power_is_shutting_down() && !measure_round_active())
         {
             calib_step();
         }
@@ -316,6 +339,11 @@ void app_task_sensor(void* argument)
     while (1)
     {
         app_mark_sens_alive(); /* T_SENS 任务健康打卡 */
+        if (app_power_is_shutting_down())
+        {
+            vTaskDelay(pdMS_TO_TICKS(10U));
+            continue;
+        }
 
         /* 1. 激光测距机：常开供电，始终轮询命令与回包状态机 */
         measure_poll();
@@ -332,19 +360,18 @@ void app_task_sensor(void* argument)
             gnss_poll();
         }
 
-        /* 边沿检测：新一轮测距开始，清空上一轮 TARGET 状态并瞬态锁定开火姿态快照 */
-        if (measure_round_active() && !round_was_active)
+        /* 每次真正发送测距指令都产生新轮次号，活动中重触发也会更新。 */
+        uint32_t round_id = measure_round_id();
+        if (round_id != displayed_round_id)
         {
-            target_published    = false;
-            trigger_att_valid   = attitude_valid();
-            trigger_heading_c01 = attitude_heading_c01();
-            trigger_pitch_c01   = attitude_pitch_c01();
+            target_published = false;
+            displayed_round_id = round_id;
         }
-        round_was_active = measure_round_active();
 
-        if (measure_take_published())
+        measure_result_t result;
+        if (measure_take_result(&result))
         {
-            on_measure_published();
+            on_measure_published(&result);
         }
 
         vTaskDelay(pdMS_TO_TICKS(10U));
@@ -359,11 +386,17 @@ void app_task_display(void* argument)
     (void)argument;
     uint32_t     heater_ms = 0U;
     disp_state_t disp;
+    measure_result_t display_result;
     LOGI("task: T_DISP started (Prio 2)\r\n");
 
     while (1)
     {
         app_mark_disp_alive(); /* T_DISP 任务健康打卡 */
+        if (app_power_is_shutting_down())
+        {
+            vTaskDelay(pdMS_TO_TICKS(APP_DISP_RENDER_MS));
+            continue;
+        }
 
         /* 1. 100ms 构造显示状态并渲染：临界区原子抓取快照（耗时 < 0.5 微秒） */
         memset(&disp, 0, sizeof(disp));
@@ -372,7 +405,8 @@ void app_task_display(void* argument)
         taskENTER_CRITICAL();
         disp.mode        = cur_mode;
         disp.measuring   = measure_round_active();
-        disp.result      = measure_get_result();
+        measure_copy_result(&display_result);
+        disp.result      = &display_result;
         disp.att_valid   = attitude_valid();
         disp.heading_c01 = attitude_heading_c01();
         disp.pitch_c01   = attitude_pitch_c01();
@@ -399,7 +433,9 @@ void app_task_display(void* argument)
         case CALIB_MAG:
             if (compass_mag_uses_samples())
             {
-                const compass_cal_state_t* cs = compass_get_cal_state();
+                compass_cal_state_t cal_snapshot;
+                compass_get_cal_state_snapshot(&cal_snapshot);
+                const compass_cal_state_t* cs = &cal_snapshot;
                 disp.page = DISP_PAGE_MAG_CAL;
                 disp.cal_cur_samples = cs->sample_count;
                 disp.cal_total_samples = APP_MAG_CAL_TOTAL_SAMPLES;
@@ -450,14 +486,14 @@ void app_task_power(void* argument)
         app_mark_pwr_alive();
 
         /* 2. 4 大并发业务任务协同喂狗判定：仅当全部任务在周期内正常调度打卡，才执行硬件喂狗 */
-        if ((s_task_alive_bits & TASK_ALIVE_ALL) == TASK_ALIVE_ALL)
+        uint32_t alive_bits = app_take_alive_bits();
+        if ((alive_bits & TASK_ALIVE_ALL) == TASK_ALIVE_ALL)
         {
             bsp_iwdg_feed();        /* 4 任务均健康存活，喂狗重装倒计数 */
-            s_task_alive_bits = 0U; /* 复位打卡标志，开启下一周期考核 */
         }
         else
         {
-            LOGW("sys: task alive check missing! bits=0x%02X\r\n", (unsigned int)s_task_alive_bits);
+            LOGW("sys: task alive check missing! bits=0x%02X\r\n", (unsigned int)alive_bits);
             /* 任一任务卡死/阻塞/挂起时，故意停止喂狗，等待硬件看门狗在 2.5 秒后强行复位重启 */
         }
 

@@ -7,6 +7,7 @@
 #include "n32g4fr.h"
 #include "misc.h"
 
+/* 留一个空槽区分满/空，因此实际最多暂存 255 字节；ISR 生产、单任务消费。 */
 #define UART_RX_BUF_SIZE 256U
 
 /* USART1 -> GNSS (PA9/PA10) */

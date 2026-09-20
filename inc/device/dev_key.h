@@ -35,8 +35,9 @@ bool dev_key_raw_power_pressed(void);
 
 /**
  * @brief 周期性采样并执行 30ms 稳定消抖滤波（由 10ms 按键任务周期调用）
- * @param[out] power_down 电源键消抖后稳定按下状态
- * @param[out] mode_down  模式键消抖后稳定按下状态
+ * @param[out] power_down 电源键稳定状态，true 为按下；可为 NULL。
+ * @param[out] mode_down 模式键稳定状态，true 为按下；可为 NULL。
+ * @note 初始化后由单一任务每 10ms 调用；周期改变会改变实际消抖时间。
  */
 void dev_key_scan_debounce(bool* power_down, bool* mode_down);
 

@@ -23,6 +23,7 @@ bool dev_storage_write_record(const void* data, size_t len)
         return false;
     }
 
+    /* 单页原地更新：先擦掉旧记录；掉电或编程失败时无法恢复旧值。 */
     if (!bsp_flash_erase_page(DEV_STORAGE_PAGE_ADDR))
     {
         return false;

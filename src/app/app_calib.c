@@ -1,6 +1,6 @@
 /**
  * @file app_calib.c
- * @brief Model-neutral hardware calibration and host compensation state machine.
+ * @brief 三型号硬件校准与主控补偿状态机。
  */
 #include "app_calib.h"
 
@@ -9,6 +9,7 @@
 #include "dev_compass.h"
 #include "rtt_log.h"
 
+/* 异步硬件命令：由 calib_step() 在按键任务中逐步推进。 */
 typedef enum
 {
     CMD_NONE = 0,
@@ -23,6 +24,8 @@ typedef enum
 static calib_state_t state = CALIB_NONE;
 static calib_command_t pending;
 static bool async_started;
+/* 磁场结束命令已发起但尚未完成，期间保持 CALIB_MAG。 */
+static bool mag_finishing;
 static app_offsets_t work;
 
 static bool hardware_busy(void)
@@ -76,7 +79,7 @@ static void page_adjust(int16_t delta_c01)
 
 bool calib_handle_key(const app_key_event_t* evt)
 {
-    /* app handles long shutdown before dispatching here. */
+    /* 关机由应用层优先处理；此处只消费校准相关按键。 */
     if (pending != CMD_NONE || hardware_busy() || compass_is_busy()) return true;
 
     if (state == CALIB_NONE)
@@ -90,6 +93,7 @@ bool calib_handle_key(const app_key_event_t* evt)
             return true;
         case 5U:
             state = CALIB_MAG;
+            mag_finishing = false;
             pending = CMD_MAG_START;
             return true;
         case 6U:
@@ -122,12 +126,14 @@ bool calib_handle_key(const app_key_event_t* evt)
 
     if (state == CALIB_MAG)
     {
+        compass_cal_state_t cal;
+        compass_get_cal_state_snapshot(&cal);
         if ((evt->evt & APP_KEY_EVT_MODE_CLICKS) != 0U && evt->arg == 6U)
         {
             pending = CMD_MAG_END;
         }
         else if ((evt->evt & APP_KEY_EVT_POWER_SHORT) != 0U &&
-                 compass_mag_uses_samples() && !compass_get_cal_state()->score_valid)
+                 compass_mag_uses_samples() && !cal.score_valid)
         {
             pending = CMD_MAG_SAMPLE;
         }
@@ -163,11 +169,21 @@ bool calib_handle_key(const app_key_event_t* evt)
 void calib_step(void)
 {
     calib_command_t command;
+    compass_cal_state_t cal;
 
     compass_step();
     if (compass_is_busy()) return;
 
-    /* app has stopped ranging and applied power before executing this queue. */
+    /* 结束请求保持在磁场校准状态，直到设备停止/保存序列全部执行完毕。 */
+    if (mag_finishing)
+    {
+        mag_finishing = false;
+        state = CALIB_NONE;
+        LOGI("calib: %s magnetic calibration ended\r\n", compass_model_name());
+        return;
+    }
+
+    /* 应用层应先停止测距并完成上电；这里仅执行一小步，不能阻塞任务。 */
     command = pending;
     pending = CMD_NONE;
     switch (command)
@@ -178,11 +194,16 @@ void calib_step(void)
         break;
     case CMD_MAG_END:
         compass_calib_mag_end();
-        state = CALIB_NONE;
-        LOGI("calib: %s magnetic calibration ended\r\n", compass_model_name());
+        mag_finishing = compass_is_busy();
+        if (!mag_finishing)
+        {
+            state = CALIB_NONE;
+            LOGI("calib: %s magnetic calibration ended\r\n", compass_model_name());
+        }
         break;
     case CMD_MAG_SAMPLE:
-        if (!compass_get_cal_state()->score_valid) compass_calib_take_sample();
+        compass_get_cal_state_snapshot(&cal);
+        if (!cal.score_valid) compass_calib_take_sample();
         break;
     case CMD_ACCEL:
         async_started = compass_calib_accel();

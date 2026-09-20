@@ -38,6 +38,7 @@ void bsp_gpio_init(void)
     bsp_power_hold_ctrl(true);
 }
 
+/* 使用专用置位/复位寄存器，避免读改写影响同端口的其他输出位。 */
 void bsp_gpio_write(void* port, uint16_t pin, bool high)
 {
     if (high)

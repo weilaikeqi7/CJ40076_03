@@ -46,6 +46,7 @@ static void bsp_pwr_pin_init(GPIO_Module* port, uint16_t pin)
     port->PBC = pin;
 }
 
+/* 启动阶段调用；重复初始化会使所有外设断电，应由上层统一安排。 */
 void bsp_power_init(void)
 {
     bsp_pwr_pin_init(BSP_PWR_RANGER_PORT, BSP_PWR_RANGER_PIN);

@@ -4,6 +4,7 @@
  */
 #include "app_power.h"
 
+#include "app.h"
 #include "app_calib.h"
 #include "app_config.h"
 #include "app_store.h"
@@ -109,10 +110,14 @@ bool app_power_is_shutting_down(void)
 
 void app_power_shutdown(void)
 {
-    /* Publish before any blocking teardown can let T_KEY resume. */
+    /* 先锁存关机并停止其他任务，阻止旧的上电或校准流程恢复执行。 */
+    taskENTER_CRITICAL();
     s_shutting_down = true;
+    app_stop_tasks();
+    taskEXIT_CRITICAL();
 
-    /* Magnetic calibration shutdown aborts without an end/save command. */
+    /* 此后仅当前任务执行收尾，串口、屏幕与外设供电不会被其他任务重启。 */
+    /* 磁场校准中关机视为放弃本轮，不发送结束或保存命令。 */
     if (calib_mag_in_progress())
     {
         LOGI("calib: mag calibration aborted by power off\r\n");

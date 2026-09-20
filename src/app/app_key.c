@@ -32,6 +32,7 @@ static uint8_t  click_count;     /* 模式键多击计数 */
 static uint32_t click_expire_ms; /* 多击窗口超时计时 */
 static bool     calib_mode;
 static bool     both_long_fired;
+static bool     chord_consumed; /* 组合键已消费：两键全部释放后才恢复单键识别 */
 static uint32_t both_press_ms;
 static bool     boot_armed; /* 开机首次按压抑制：松手后才武装 */
 
@@ -77,6 +78,7 @@ void app_key_init(void)
     both_press_ms   = 0U;
     both_long_fired = false;
     boot_armed      = false;
+    chord_consumed  = false;
 }
 
 void app_key_set_calib_mode(bool on)
@@ -145,6 +147,21 @@ app_key_event_t app_key_scan(void)
         return evt;
     }
 
+    if (chord_consumed)
+    {
+        key_power.press_ms = key_mode.press_ms = 0U;
+        key_power.repeat_ms = key_mode.repeat_ms = 0U;
+        key_power.hold_fired = key_mode.hold_fired = false;
+        click_count = 0U;
+        click_expire_ms = 0U;
+        if (!key_power.stable && !key_mode.stable)
+        {
+            chord_consumed = false;
+            both_long_fired = false;
+        }
+        return evt;
+    }
+
     /* ---------- 双键同按（校准页切页/保存） ---------- */
     if (calib_mode && key_power.stable && key_mode.stable)
     {
@@ -152,6 +169,7 @@ app_key_event_t app_key_scan(void)
         if (!both_long_fired && both_press_ms >= APP_KEY_BOTH_LONG_MS)
         {
             both_long_fired  = true;
+            chord_consumed   = true;
             evt.evt         |= APP_KEY_EVT_BOTH_LONG;
         }
         /* 双键期间屏蔽单击/连发计时 */

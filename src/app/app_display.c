@@ -88,14 +88,14 @@ static void draw_x3_1(lcd_hiseg_t hiseg, uint8_t first_digit, uint8_t dot_sym, u
 static void draw_x4_1(lcd_hiseg_t hiseg, uint8_t first_digit, uint8_t dot_sym, uint32_t value_x1,
                       bool valid)
 {
-    uint32_t int_part = value_x1 / 10U; /* 最多 3999（超出丢弃高位） */
+    uint32_t int_part = value_x1 / 10U; /* 最高位特殊段仅支持 0~3，超出范围显示无效横杠。 */
     uint8_t  frac     = (uint8_t)(value_x1 % 10U);
     uint8_t  digits[4];
     uint8_t  n = 0U;
     uint8_t  i;
     uint32_t v;
 
-    if (!valid)
+    if (!valid || value_x1 > 39999U)
     {
         lcd_hiseg_digit(hiseg, 0xFFU); /* 千位特殊段无横杠段，无效时彻底熄灭 */
         for (i = 0U; i < 3U; i++)
@@ -105,11 +105,6 @@ static void draw_x4_1(lcd_hiseg_t hiseg, uint8_t first_digit, uint8_t dot_sym, u
         put_digit((uint8_t)(first_digit + 3U), -1);
         lcd_symbol(dot_sym, false);
         return;
-    }
-
-    if (int_part > 3999U)
-    {
-        int_part %= 10000U; /* 超高 4 位丢弃高位 */
     }
 
     v = int_part;
@@ -399,7 +394,7 @@ void display_render(const disp_state_t* s)
 
     lcd_clear();
 
-    /* Sample-calibration layout restored from the MCP406 feature. */
+    /* 采样式校准页：显示设备点数、评分及实时姿态。 */
     if (s->page == DISP_PAGE_MAG_CAL)
     {
         uint32_t h_x1 = (uint32_t)s->heading_c01 / 10U;
@@ -408,7 +403,7 @@ void display_render(const disp_state_t* s)
         draw_compass(s->heading_c01, s->att_valid);
         draw_pitch(s->pitch_c01, s->att_valid);
 
-        /* Validate before any float-to-integer conversion; retain error scores. */
+        /* 浮点转整数前先校验范围；保留有限异常评分以供判断。 */
         if (!s->cal_score_valid || !isfinite(s->cal_score) ||
             s->cal_score < 0.0f || s->cal_score > 3999.9f)
         {
@@ -418,7 +413,7 @@ void display_render(const disp_state_t* s)
         {
             uint32_t sc100 = (uint32_t)(s->cal_score * 100.0f + 0.5f);
             uint32_t sc10 = (uint32_t)(s->cal_score * 10.0f + 0.5f);
-            /* ROW2 has one physical decimal place. The coordinate row supports two. */
+            /* 距离区只有一个固定小数位；坐标区支持两位小数显示。 */
             draw_x4_1(LCD_HISEG_DIST, 4, LCD_SYM_DOT_ROW2, sc10, true);
             lcd_print_uint(11, 4, sc100 / 100U, false);
             put_digit(15, (int8_t)((sc100 / 10U) % 10U));

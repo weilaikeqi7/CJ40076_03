@@ -1,2 +1,8 @@
 /build/
-/tests/
+/tests/**/.build/
+/tests/**/.build.*/
+/tests/**/*.exe
+/tests/**/*.o
+/tests/**/*.obj
+/tests/**/*.gcda
+/tests/**/*.gcno

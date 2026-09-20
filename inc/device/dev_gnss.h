@@ -6,8 +6,8 @@
  * 发话者 ID 有 GN/GP/GB/BD/GL/GA 等。本驱动解析 RMC 与 GGA 两条关键语句，
  * 其余语句（GSA/GSV/VTG/GLL/$POCNR/$POCLK）直接忽略。
  *
- * 使用：gnss_init()（任务上下文，含上电等待）-> 主循环调 gnss_poll() ->
- *       gnss_get_data() 取最新定位数据。冷启动首次定位约 28s。
+ * 使用：gnss_init()（任务上下文，含上电等待）-> 单一任务调 gnss_poll() ->
+ *       gnss_get_fix_snapshot() 取原子定位快照。冷启动首次定位约 28s。
  */
 #ifndef GNSS_H
 #define GNSS_H
@@ -58,6 +58,16 @@ typedef struct
     uint32_t tick_gga; /* 最近 GGA 更新 tick */
 } gnss_data_t;
 
+/** GGA 定位字段的原子快照，供其他任务读取。 */
+typedef struct
+{
+    double     latitude;   /* 度，北纬为正 */
+    double     longitude;  /* 度，东经为正 */
+    float      altitude_m; /* 海拔（正高度），米 */
+    gnss_fix_t fix_quality;
+    uint32_t   tick_gga;
+} gnss_fix_snapshot_t;
+
 /** 上电并初始化串口（115200 8N1） */
 void gnss_init(void);
 
@@ -67,11 +77,14 @@ void gnss_init(void);
  */
 void gnss_power_ctl(bool on);
 
-/** 喂串口数据解析 NMEA，主循环周期调用 */
+/** 喂串口数据解析 NMEA，唯一调用者应为传感器任务 */
 void gnss_poll(void);
 
-/** 取最新数据（只读指针） */
+/** 取最新完整数据（只读指针，仅限驱动内部/单任务使用） */
 const gnss_data_t* gnss_get_data(void);
+
+/** 原子读取 GGA 定位快照，可由其他任务调用 */
+void gnss_get_fix_snapshot(gnss_fix_snapshot_t* out);
 
 /** 是否收到有效定位且数据未超时 */
 bool gnss_is_fixed(uint32_t timeout_ms);

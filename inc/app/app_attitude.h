@@ -1,9 +1,9 @@
 /**
  * @file app_attitude.h
- * @brief Selected compass angles -> compensated pitch/heading (0.01 degrees).
+ * @brief 所选罗盘姿态叠加主控补偿，输出单位为 0.01 度。
  *
- * The device layer preserves each model's installed pitch/heading convention.
- * This layer only adds PIt/HIt/HEr host offsets and normalizes the ranges.
+ * 设备层完成型号对应的安装方向换算；本层只叠加 PIt/HIt/HEr 补偿并限制范围。
+ * 传感器任务负责更新，跨任务组合读取时应放在同一个短临界区。
  */
 #ifndef APP_ATTITUDE_H
 #define APP_ATTITUDE_H
@@ -17,7 +17,7 @@ extern "C" {
 
 #include "app_store.h"
 
-/** Sensor-task update: poll the selected compass and compensate fresh angles. */
+/** 传感器任务调用：轮询所选罗盘，并更新最新有效补偿角度。 */
 void attitude_update(void);
 
 /** 姿态是否有效（超时内收到角度帧） */

@@ -16,9 +16,9 @@
  *
  * F/E 交替：单次/连续 1s；多功能/测试 2s（坐标/高程跟随 F/E 同步交替，
  *           坐标行内部经纬度 1s 交替，形成 2s 嵌套 1s 的 4s 循环）。
- * Sample calibration: device count/12 and live attitude. Score uses one decimal
- * place in the distance row and two in the coordinate row (digits 11..16).
- * Invalid scores show distance dashes. Only JY901B hardware calibration uses full-on.
+ * 采样式校准显示设备返回点数/12及实时姿态；距离区评分保留一位小数，
+ * 坐标区（数码管 11~16）评分保留两位小数。
+ * 无效评分显示横杠，只有 JY901B 硬件校准采用全显。
  */
 #ifndef APP_DISPLAY_H
 #define APP_DISPLAY_H
@@ -40,7 +40,7 @@ typedef enum
     DISP_PAGE_PIT,
     DISP_PAGE_HIT,
     DISP_PAGE_HER,
-    DISP_PAGE_MAG_CAL, /* MCP406/MCG505 sample count and score */
+    DISP_PAGE_MAG_CAL, /* MCP406/MCG505 采样点数与评分 */
     DISP_PAGE_FULL_ON, /* JY901B 硬件校准全显 */
 } disp_page_t;
 
@@ -68,10 +68,10 @@ typedef struct
     disp_page_t page;           /* 校准页 */
     int16_t     page_value_c01; /* 当前页补偿值（0.01°） */
 
-    uint32_t cal_cur_samples;   /* Device-reported count; no synthetic samples. */
-    uint16_t cal_total_samples; /* MCP406/MCG505 target: 12. */
-    float    cal_score;         /* Device score, including finite error scores. */
-    bool     cal_score_valid;   /* Score received, not necessarily acceptable to save. */
+    uint32_t cal_cur_samples;   /* 设备回报点数，不虚增采样计数。 */
+    uint16_t cal_total_samples; /* MCP406/MCG505 目标采样数：12。 */
+    float    cal_score;         /* 设备评分，含有限的异常评分。 */
+    bool     cal_score_valid;   /* 已收到评分，不代表达到保存门限。 */
 } disp_state_t;
 
 void display_init(void);

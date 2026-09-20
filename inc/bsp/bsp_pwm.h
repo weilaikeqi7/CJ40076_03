@@ -26,12 +26,14 @@ void bsp_pwm_init(void);
 
 /**
  * @brief 设置加热丝 PWM 占空比
- * @param permille 占空比千分比 0~1000（0=关，1000=全开）
+ * @param permille 请求占空比千分比 0~1000，超过 1000 按 1000 处理。
+ * @note 须先初始化；比较值按 ARR 缩放，1000 对应 CCR1=ARR，并非严格恒高电平。
  */
 void bsp_pwm_set_duty(uint16_t permille);
 
 /**
- * @brief 加热丝全开/全关（等价 duty 1000/0）
+ * @brief 选择最大请求占空比或关闭（等价 duty 1000/0）。
+ * @param on true 设置 1000‰ 请求值，false 设置 0‰；须先初始化。
  */
 void bsp_pwm_set(bool on);
 

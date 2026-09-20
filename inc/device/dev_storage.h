@@ -30,6 +30,7 @@ void dev_storage_init(void);
  * @param offset 扇区内偏移（字节）
  * @param buf 接收数据缓冲区
  * @param len 读取字节长度
+ * @note offset+len 须不超过 2KB 页范围，buf 至少容纳 len 字节；本层不检查越界。
  */
 void dev_storage_read(uint32_t offset, void* buf, size_t len);
 
@@ -37,7 +38,9 @@ void dev_storage_read(uint32_t offset, void* buf, size_t len);
  * @brief 将整块结构化数据提交写入存储扇区（整页擦除 + 逐字写入 + 回读校验）
  * @param data 待写入的数据指针（必须 4 字节对齐）
  * @param len 待写入字节数（必须为 4 的整数倍）
- * @return true 写入成功，false 写入失败
+ * @return true 表示写入及回读校验成功；false 表示参数非法、擦除或编程失败。
+ * @note data 非空、len 非零且不超过 2KB；本层不检查页边界，调用方须保证。
+ *       调用方须串行化访问；整页更新非原子，失败后旧记录可能已被擦除。
  */
 bool dev_storage_write_record(const void* data, size_t len);
 

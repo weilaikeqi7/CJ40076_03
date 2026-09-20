@@ -7,6 +7,49 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+static TaskHandle_t s_workers[4];
+
+/* 关机不可撤销：挂起其他业务任务，防止等待中的外设操作恢复后重新上电。 */
+void app_stop_tasks(void)
+{
+    TaskHandle_t caller = xTaskGetCurrentTaskHandle();
+    unsigned i;
+    for (i = 0U; i < 4U; ++i)
+    {
+        if (s_workers[i] != NULL && s_workers[i] != caller)
+        {
+            vTaskSuspend(s_workers[i]);
+        }
+    }
+}
+
+static void app_task_boot(void* argument)
+{
+    BaseType_t ret;
+    (void)argument;
+
+    /* 带延时的外设初始化只能在调度器启动后执行，此时当前任务有效。 */
+    app_system_init();
+
+    vTaskSuspendAll();
+    ret = xTaskCreate(app_task_key, "T_KEY", configMINIMAL_STACK_SIZE * 2U, NULL,
+                      tskIDLE_PRIORITY + 4U, &s_workers[0]);
+    if (ret != pdPASS) { Error_Handler(); }
+    ret = xTaskCreate(app_task_sensor, "T_SENS", configMINIMAL_STACK_SIZE * 3U, NULL,
+                      tskIDLE_PRIORITY + 3U, &s_workers[1]);
+    if (ret != pdPASS) { Error_Handler(); }
+    ret = xTaskCreate(app_task_display, "T_DISP", configMINIMAL_STACK_SIZE * 3U, NULL,
+                      tskIDLE_PRIORITY + 2U, &s_workers[2]);
+    if (ret != pdPASS) { Error_Handler(); }
+    ret = xTaskCreate(app_task_power, "T_PWR", configMINIMAL_STACK_SIZE * 2U, NULL,
+                      tskIDLE_PRIORITY + 1U, &s_workers[3]);
+    if (ret != pdPASS) { Error_Handler(); }
+
+    /* 任务句柄全部登记后再恢复调度，关机流程才能可靠挂起所有业务任务。 */
+    (void)xTaskResumeAll();
+    vTaskDelete(NULL);
+}
+
 int main(void)
 {
     BaseType_t ret;
@@ -18,24 +61,8 @@ int main(void)
     bsp_gpio_init();
     bsp_power_init();
 
-    /* 启动核心驱动并完成自检 */
-    app_system_init();
-
-    /* ---------------- 建立 4 大专业并发业务任务 ---------------- */
-    /* Task 1: 人机交互与按键即时响应 (最高优先级 4，确保长按与单击永不卡顿) */
-    ret = xTaskCreate(app_task_key, "T_KEY", configMINIMAL_STACK_SIZE * 2U, NULL, tskIDLE_PRIORITY + 4U, NULL);
-    if (ret != pdPASS) { Error_Handler(); }
-
-    /* Task 2: 传感器采集与空间三角经纬度投影解算 (优先级 3) */
-    ret = xTaskCreate(app_task_sensor, "T_SENS", configMINIMAL_STACK_SIZE * 3U, NULL, tskIDLE_PRIORITY + 3U, NULL);
-    if (ret != pdPASS) { Error_Handler(); }
-
-    /* Task 3: 屏幕画面刷新(100ms)与极低温10kHz自适应闭环温控(1s) (优先级 2) */
-    ret = xTaskCreate(app_task_display, "T_DISP", configMINIMAL_STACK_SIZE * 3U, NULL, tskIDLE_PRIORITY + 2U, NULL);
-    if (ret != pdPASS) { Error_Handler(); }
-
-    /* Task 4: 电池电压采样、1Hz闪烁监控与欠压紧急断电保护 (优先级 1) */
-    ret = xTaskCreate(app_task_power, "T_PWR", configMINIMAL_STACK_SIZE * 2U, NULL, tskIDLE_PRIORITY + 1U, NULL);
+    ret = xTaskCreate(app_task_boot, "T_BOOT", configMINIMAL_STACK_SIZE * 3U, NULL,
+                      tskIDLE_PRIORITY + 4U, NULL);
     if (ret != pdPASS) { Error_Handler(); }
 
     vTaskStartScheduler();

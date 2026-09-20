@@ -1,3 +1,8 @@
+/**
+ * @file FreeRTOSConfig.h
+ * @brief 本工程 FreeRTOS 调度、内存、异常入口及可用 API 的编译期配置。
+ * 系统节拍为 1ms；任务栈深度以 StackType_t 元素计，堆容量以字节计。
+ */
 #ifndef FREERTOS_CONFIG_H
 #define FREERTOS_CONFIG_H
 
@@ -50,6 +55,8 @@ void AppAssertFailed(const char* file, int line);
 #define configUSE_STATS_FORMATTING_FUNCTIONS    0
 
 #define configPRIO_BITS                         __NVIC_PRIO_BITS
+/* Cortex-M 优先级数值越小越紧急；调用 FromISR API 的中断逻辑优先级须为 5~15。
+ *  BSP 中优先级 2/4 的定时器和串口 ISR 高于该界限，不得调用内核 API。 */
 #define configLIBRARY_LOWEST_INTERRUPT_PRIORITY 15
 #define configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY 5
 #define configKERNEL_INTERRUPT_PRIORITY         (configLIBRARY_LOWEST_INTERRUPT_PRIORITY << (8 - configPRIO_BITS))

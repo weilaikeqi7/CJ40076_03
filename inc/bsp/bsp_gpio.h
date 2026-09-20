@@ -29,7 +29,8 @@ void bsp_gpio_init(void);
 /**
  * @brief 写指定引脚电平
  * @param port GPIO 端口（如 GPIOA、GPIOB）
- * @param pin  引脚号（如 GPIO_PIN_12）
+ * @param pin  引脚位掩码（如 GPIO_PIN_12，可组合多个位）
+ * @note port 必须有效且已开启时钟，目标引脚须预先配置为输出。
  * @param high true 置高，false 置低
  */
 void bsp_gpio_write(void* port, uint16_t pin, bool high);

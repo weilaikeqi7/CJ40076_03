@@ -17,8 +17,13 @@
 extern "C" {
 #endif
 
+/** 保留初始化入口；控制块和上行缓冲在静态初始化时就绪。 */
 void rtt_log_init(void);
+/** str 须为非空、以 NUL 结尾的字符串；缓冲满丢弃尾部，无阻塞等待。
+ *  写入期间关中断，退出时无条件开中断；不得用于依赖原中断屏蔽状态的上下文。 */
 void rtt_write(const char* str);
+/** fmt 为有效 printf 格式串；每次最多输出 127 字节，超长内容截断。
+ *  使用栈上缓冲，仍须遵守 rtt_write 的中断上下文限制。 */
 void rtt_printf(const char* fmt, ...);
 
 #define LOGI(...) rtt_printf(__VA_ARGS__)

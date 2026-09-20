@@ -41,6 +41,7 @@ void bsp_iwdg_init(uint32_t timeout_ms)
     IWDG_Enable();
 }
 
+/* 仅刷新硬件计时；由上层决定哪些任务状态正常时才允许喂狗。 */
 void bsp_iwdg_feed(void)
 {
     IWDG_ReloadKey(); /* 写入 0xAAAA 喂狗刷新倒计数 */

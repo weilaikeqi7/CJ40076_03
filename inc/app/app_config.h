@@ -34,16 +34,16 @@
 #define APP_RANGE_INVALID_INT 0xFFFFU
 
 /* ------------------------------ 姿态/罗盘 ------------------------------ */
-/** Installed-model defaults (0.01 degrees); Flash overrides these when valid. */
+/** 当前罗盘型号的默认安装补偿（0.01 度）；有效且型号匹配的 Flash 记录可覆盖。 */
 #define APP_DEFAULT_PIT_C01 0
 #if COMPASS_MODEL == COMPASS_MODEL_JY901B
 #define APP_DEFAULT_HIT_C01 9000
-#else /* MCP406 and MCG505 feature defaults */
+#else /* MCP406 和 MCG505 的默认安装补偿 */
 #define APP_DEFAULT_HIT_C01 0
 #endif
 #define APP_DEFAULT_HER_C01 0
 
-/** MCP406/MCG505 manual magnetic calibration sample target. */
+/** MCP406/MCG505 手动磁校准的目标采样点数。 */
 #define APP_MAG_CAL_TOTAL_SAMPLES 12U
 
 /** 补偿范围（0.01 度）：PIt ±90°，HIt/HEr ±180° */

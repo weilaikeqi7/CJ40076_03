@@ -31,15 +31,17 @@ typedef struct
 /** 上电加载：校验通过读 Flash，否则用默认值并覆写 Flash */
 void store_init(void);
 
-/** 读取/设置测量计数（RAM 缓存，set 不写 Flash） */
+/** 返回 RAM 测量计数；调用前须 store_init，模块访问由调用方串行化。 */
 uint32_t store_get_count(void);
+/** 设置 RAM 计数（次），大于 APP_COUNT_MAX 时限幅；不写 Flash。 */
 void     store_set_count_ram(uint32_t count);
 
-/** 计数立即写 Flash（三击清零用） */
+/** 立即提交计数和补偿的整条记录；返回 true 表示 Flash 写入并校验成功。 */
 bool store_save_count(void);
 
-/** 读取/保存角度补偿值 */
+/** 将 RAM 补偿值复制到 out（不可为空，字段单位均为 0.01 度）。 */
 void store_get_offsets(app_offsets_t* out);
+/** offsets 不可为空；返回 false 时 Flash 保存失败，但 RAM 补偿仍已更新。 */
 bool store_save_offsets(const app_offsets_t* offsets);
 
 #ifdef __cplusplus

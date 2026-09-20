@@ -77,7 +77,18 @@ void ranger_deinit(void);
 /** 喂串口数据解析响应帧，主循环周期调用 */
 void ranger_poll(void);
 
+/** 仅传感器任务调用：非阻塞检查指令间隔。返回 false 时未排队/发送指令，
+ * 后续轮询重试即可。成功发送 SINGLE 前丢弃旧接收数据。
+ * 每次成功调用最多发送 7 个串口字节，发送期间保持中断开启。 */
+bool ranger_try_set_target_mode(ranger_target_t mode);
+bool ranger_try_range_single(void);
+
+/** 传感器任务调用：清除距离队列、解析半帧和串口接收缓存。 */
+void ranger_discard_ranges(void);
+
 /* ------------------------------ 命令（发送，异步等响应） ------------------------------ */
+/* 旧命令接口会同步等待指令间隔；不得从按键处理调用，也不得与传感器任务
+ * 独占的测量流程并发调用。 */
 
 void ranger_self_check(void);              /* 设备自检（会出光，注意防护） */
 void ranger_range_single(void);            /* 单次测距 */

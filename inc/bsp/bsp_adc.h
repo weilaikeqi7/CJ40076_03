@@ -40,7 +40,10 @@ extern "C" {
 
 void bsp_adc_init(void);
 
-/** 读取 ADC 原始值（0~4095），channel 取 BSP_VBAT_ADC_CH / BSP_NTC_ADC_CH */
+/** 初始化或转换失败标记，不属于有效的 12 位 ADC 采样范围。 */
+#define BSP_ADC_INVALID UINT16_MAX
+
+/** 读取 ADC 原始值（0~4095），失败返回 BSP_ADC_INVALID。 */
 uint16_t bsp_adc_read_raw(uint8_t channel);
 uint16_t bsp_adc_read_filtered(uint8_t channel);
 

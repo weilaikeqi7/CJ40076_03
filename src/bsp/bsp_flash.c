@@ -37,6 +37,7 @@ bool bsp_flash_write_words(uint32_t addr, const uint32_t* words, size_t word_cou
         return false;
     }
 
+    /* 调用方须串行化擦写；中途失败不回滚，已写入的字仍然保留。 */
     FLASH_Unlock();
     for (i = 0U; i < word_count; i++)
     {

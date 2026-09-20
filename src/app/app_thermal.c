@@ -24,7 +24,7 @@ void app_thermal_step(uint32_t vbat_mv)
     int16_t  temp_c10 = bsp_ntc_temperature_c10();
     uint16_t duty     = 0U;
 
-    /* 1. 安全保护：NTC 传感器开路、脱落或短路，彻底关闭加热防止干烧 */
+    /* 温度换算返回无效标记时立即关闭；不使用失效读数继续计算占空比。 */
     if (temp_c10 == BSP_TEMP_INVALID)
     {
         dev_heater_off();

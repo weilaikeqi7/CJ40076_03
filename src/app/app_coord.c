@@ -43,25 +43,25 @@ void coord_compute_target(const app_geo_point_t* self, float dist_m, int32_t hea
 
 bool coord_get_self(app_geo_point_t* out)
 {
-    const gnss_data_t* g = gnss_get_data();
+    gnss_fix_snapshot_t g;
 
-    gnss_poll();
+    gnss_get_fix_snapshot(&g);
 
     /* 仅校验通过且 fix_quality>0 的 GGA 作为有效定位 */
-    if (g->tick_gga == 0U || g->fix_quality == GNSS_FIX_INVALID)
+    if (g.tick_gga == 0U || g.fix_quality == GNSS_FIX_INVALID)
     {
         out->valid = false;
         return false;
     }
-    if ((xTaskGetTickCount() - g->tick_gga) >= pdMS_TO_TICKS(APP_GNSS_TIMEOUT_MS))
+    if ((xTaskGetTickCount() - g.tick_gga) >= pdMS_TO_TICKS(APP_GNSS_TIMEOUT_MS))
     {
         out->valid = false;
         return false;
     }
 
-    out->latitude   = g->latitude;
-    out->longitude  = g->longitude;
-    out->altitude_m = g->altitude_m;
+    out->latitude   = g.latitude;
+    out->longitude  = g.longitude;
+    out->altitude_m = g.altitude_m;
     out->valid      = true;
     return true;
 }

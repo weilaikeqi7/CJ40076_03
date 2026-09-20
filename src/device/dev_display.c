@@ -33,6 +33,7 @@
 #define LCD_COMMON_MASK     0xFCU /* bit0=Y240(COMMON)、bit1=Y239(NC) */
 #endif
 
+/* 全模块共享帧缓冲，无内部互斥；绘制、刷新及电源切换须由上层串行化。 */
 static uint8_t lcd_frame[LCD_FRAME_BYTES];
 
 /* 粗略微秒级延时（移位时序要求不高，按 4 周期/次估算） */

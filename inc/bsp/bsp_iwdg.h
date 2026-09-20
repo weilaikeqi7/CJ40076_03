@@ -17,7 +17,8 @@ extern "C" {
 
 /**
  * @brief 初始化并启动独立看门狗
- * @param timeout_ms 超时溢出时间（单位毫秒，推荐 2000~3000ms）
+ * @param timeout_ms 请求超时（毫秒，推荐 2000~3000）；须避免 timeout_ms*625 溢出。
+ * @note 重装值限幅为 1~4095；实际周期受 LSI 频差和整数取整影响。
  * @note  一旦使能启动后，硬件上无法通过代码停用，只能依靠周期性喂狗保活或掉电终止。
  */
 void bsp_iwdg_init(uint32_t timeout_ms);

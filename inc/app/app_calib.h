@@ -1,13 +1,12 @@
 /**
  * @file app_calib.h
- * @brief Hardware calibration and common PIt/HIt/HEr compensation state machine.
+ * @brief 硬件校准与通用 PIt/HIt/HEr 补偿状态机。
  *
- * Four clicks: HEr. Seven: PIt, then both keys held: HIt, then save/exit.
- * Five: magnetic calibration. Six: end using the model's save/abort policy.
- * JY901B calibrates continuously; MCP406/MCG505 use short-power-key samples
- * until a score arrives. Only JY901B supports eight/nine clicks (accel/reference).
- * Ten: asynchronous factory reset, followed by host defaults on completion.
- * Busy operations ignore keys; app handles long-power shutdown first.
+ * 四击进入 HEr，七击进入 PIt，再长按双键进入 HIt，最后保存退出。
+ * 五击进入磁场校准，六击结束并按型号策略保存或放弃。JY901B 连续校准；
+ * MCP406/MCG505 使用短按电源键采样，直到设备返回评分。八/九击仅 JY901B 支持。
+ * 十击启动异步恢复出厂，完成后恢复主机默认补偿值。
+ * 硬件操作期间忽略按键；应用层优先处理长按关机。
  */
 #ifndef APP_CALIB_H
 #define APP_CALIB_H
@@ -36,10 +35,10 @@ typedef enum
 
 calib_state_t calib_get_state(void);
 int16_t calib_page_value_c01(void);
-/** Consume calibration keys and queue commands; does not switch device power. */
+/** 消费校准按键并排队命令，不直接切换设备电源。 */
 bool calib_handle_key(const app_key_event_t* evt);
-/** Call each T_KEY iteration after stopping ranging and applying power.
- *  Advances queued commands and async operations; reapply power afterwards.
+/** T_KEY 每轮停止测距并应用供电策略后调用。
+ *  推进待发命令和异步操作，执行后重新应用供电策略。
  */
 void calib_step(void);
 bool calib_mag_in_progress(void);

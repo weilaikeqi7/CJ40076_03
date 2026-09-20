@@ -10,7 +10,7 @@
 #define BSP_PWM_PORT GPIOB
 #define BSP_PWM_PIN  GPIO_PIN_6
 
-/** 加热丝 PWM 分辨率（ARR+1），占空比 = CCR1/1000 */
+/** 计算预分频时采用的目标步数；实际 ARR 由时钟整除结果决定。 */
 #define PWM_STEPS 1000U
 
 /** 计算出的实际 ARR 值 */

@@ -23,7 +23,8 @@ void dev_heater_init(void);
 
 /**
  * @brief 设置加热丝功率占空比
- * @param permille 占空比千分比（0~1000‰）
+ * @param permille 请求占空比千分比（0~1000‰），超范围由 BSP 限幅。
+ * @note 须先初始化；接口不测量实际功率，也不自行执行温度或欠压保护。
  */
 void dev_heater_set_power(uint16_t permille);
 

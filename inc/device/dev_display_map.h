@@ -1,5 +1,5 @@
 /**
- * @file lcd_map.h
+ * @file dev_display_map.h
  * @brief P1237 段码屏段码映射：数码管位/符号 -> 屏引脚 Y 编号
  *
  * 屏面布局（按 P1237 布局图，符号编号 = 真值表 S 编号）：
@@ -111,7 +111,7 @@ void lcd_print_digit(uint8_t digit, int8_t value);
 /**
  * @brief 从指定数码管开始显示无符号数（靠右对齐，左侧补空或补 0）。
  * @param first_digit   最左边一位的数码管编号
- * @param count         占用位数（编号连续递增）
+ * @param count         占用位数 1~9（编号连续递增，末位不得超过 27）
  * @param value         数值（超出位数时显示全 8）
  * @param leading_zero  true=左侧补 0，false=左侧补空
  */
@@ -134,7 +134,9 @@ typedef enum
 
 /**
  * @brief 最高位特殊段显示 1~3（value=0 或 0xFF 熄灭——该段物理上无法显示 0）。
- * @note  4 段笔画的物理结构已由图纸和实测核实（三横连通段 + 右上 + 左下 + 右下）。
+ * @param group 须为有效 LCD_HISEG_xxx 枚举；本函数不检查数组下标。
+ * @param value 1~3 显示对应字形，0 或大于 3 时熄灭。
+ * @note 只修改帧缓冲，调用 lcd_flush 后才反映到屏幕。
  */
 void lcd_hiseg_digit(lcd_hiseg_t group, uint8_t value);
 
