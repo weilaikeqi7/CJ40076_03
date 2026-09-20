@@ -155,7 +155,7 @@ endif()
 # ==============================================================================
 # 7. 编译宏定义
 # ==============================================================================
-set(COMPASS_MODEL "JY901B" CACHE STRING "Compass model: JY901B, MCP406, MCG505")
+set(COMPASS_MODEL "MCG505" CACHE STRING "Compass model: JY901B, MCP406, MCG505")
 set_property(CACHE COMPASS_MODEL PROPERTY STRINGS JY901B MCP406 MCG505)
 string(TOUPPER "${COMPASS_MODEL}" COMPASS_MODEL_UPPER)
 if(COMPASS_MODEL_UPPER STREQUAL "JY901B")
