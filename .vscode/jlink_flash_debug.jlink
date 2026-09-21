@@ -1,0 +1,10 @@
+device N32G4FRHE
+si SWD
+speed 4000
+rsettype 0
+r
+h
+loadfile build_debug/CJ40076.hex
+r
+g
+exit

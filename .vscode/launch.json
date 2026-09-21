@@ -2,22 +2,34 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "J-Link Debug CJ40076",
+            "name": "J-Link Debug CJ40076 (Logs ON)",
             "type": "cortex-debug",
             "request": "launch",
             "servertype": "jlink",
             "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/build/CJ40076.elf",
+            "executable": "${workspaceFolder}/build_debug/CJ40076.elf",
             "device": "N32G4FRHE",
             "interface": "swd",
             "serverpath": "JLinkGDBServerCL.exe",
             "gdbPath": "gdb-multiarch.exe",
             "runToEntryPoint": "main",
-            "preLaunchTask": "CMake: Build",
-            "serverArgs": [
-                "-speed",
-                "1000"
-            ]
+            "preLaunchTask": "CMake: Build Debug + Logs",
+            "serverArgs": ["-speed", "1000"]
+        },
+        {
+            "name": "J-Link Debug CJ40076 (Release)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "jlink",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build_release/CJ40076.elf",
+            "device": "N32G4FRHE",
+            "interface": "swd",
+            "serverpath": "JLinkGDBServerCL.exe",
+            "gdbPath": "gdb-multiarch.exe",
+            "runToEntryPoint": "main",
+            "preLaunchTask": "CMake: Build Release",
+            "serverArgs": ["-speed", "1000"]
         }
     ]
 }

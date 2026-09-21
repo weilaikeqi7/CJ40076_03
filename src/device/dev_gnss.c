@@ -6,7 +6,7 @@
 
 #include "bsp_power.h"
 #include "bsp_uart.h"
-#include "rtt_log.h"
+#include "debug_log.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -224,7 +224,7 @@ static void gnss_handle_rmc(char* line)
     }
 
     gnss_data.tick_rmc = xTaskGetTickCount();
-    LOGI("[DATA][BEIDOU][RMC] valid=%u utc=%02u:%02u:%02u date=20%02u-%02u-%02u lat=%.7f lon=%.7f speed_kn=%.3f speed_kmh=%.3f course=%.3f mode=%c\r\n",
+    DBG_LOGI("[DATA][BEIDOU][RMC] valid=%u utc=%02u:%02u:%02u date=20%02u-%02u-%02u lat=%.7f lon=%.7f speed_kn=%.3f speed_kmh=%.3f course=%.3f mode=%c\r\n",
          gnss_data.valid ? 1U : 0U, (unsigned int)gnss_data.utc_hour, (unsigned int)gnss_data.utc_min,
          (unsigned int)gnss_data.utc_sec, (unsigned int)gnss_data.date_year,
          (unsigned int)gnss_data.date_month, (unsigned int)gnss_data.date_day, gnss_data.latitude,
@@ -294,7 +294,7 @@ static void gnss_handle_gga(char* line, uint32_t generation)
     gnss_data.tick_gga = tick_gga;
     taskEXIT_CRITICAL();
 
-    LOGI("[DATA][BEIDOU][GGA] fix=%u sats=%u hdop=%.2f lat=%.7f lon=%.7f alt=%.3fm\r\n",
+    DBG_LOGI("[DATA][BEIDOU][GGA] fix=%u sats=%u hdop=%.2f lat=%.7f lon=%.7f alt=%.3fm\r\n",
          (unsigned int)fix_quality, (unsigned int)sats_used, hdop, latitude, longitude, altitude_m);
 }
 
@@ -303,11 +303,11 @@ static void gnss_handle_line(char* line, int len, uint32_t generation)
     bool powered;
 
     /* 原始行先打印，再做校验；校验失败的原始数据也能用于定位链路问题。 */
-    rtt_raw_line("BEIDOU", line, (size_t)len);
+    DBG_RAW_LINE("BEIDOU", line, (size_t)len);
 
     if (!nmea_checksum_ok(line, len))
     {
-        LOGW("[DATA][BEIDOU] checksum_invalid\r\n");
+        DBG_LOGW("[DATA][BEIDOU] checksum_invalid\r\n");
         return;
     }
 
@@ -341,6 +341,7 @@ static void gnss_handle_line(char* line, int len, uint32_t generation)
  */
 static void gnss_send_cmd(const char* cmd)
 {
+    DBG_LOGI("[DBG][BEIDOU] TX %s\r\n", cmd);
     bsp_uart_write(GNSS_UART, cmd, strlen(cmd));
     bsp_uart_write(GNSS_UART, "\r\n", 2U);
 }

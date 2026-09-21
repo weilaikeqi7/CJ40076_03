@@ -2,54 +2,70 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "CMake: Configure",
+            "label": "CMake: Configure Debug + Logs",
             "type": "process",
             "command": "cmake",
             "args": [
-                "-S",
-                "${workspaceFolder}",
-                "-B",
-                "${workspaceFolder}/build",
-                "-G",
-                "Ninja",
+                "-S", "${workspaceFolder}",
+                "-B", "${workspaceFolder}/build_debug",
+                "-G", "Ninja",
                 "-DCMAKE_BUILD_TYPE=Debug",
-                "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/cmake/arm-none-eabi-gcc.cmake"
+                "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/cmake/arm-none-eabi-gcc.cmake",
+                "-DCOMPASS_MODEL=MCG505"
             ],
-            "options": {
-                "cwd": "${workspaceFolder}"
-            }
-        },
-        {
-            "label": "CMake: Build",
-            "type": "process",
-            "command": "cmake",
-            "args": [
-                "--build",
-                "${workspaceFolder}/build"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}"
-            },
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
+            "options": { "cwd": "${workspaceFolder}" },
             "problemMatcher": []
         },
         {
-            "label": "J-Link: Flash",
+            "label": "CMake: Build Debug + Logs",
+            "type": "process",
+            "command": "cmake",
+            "args": ["--build", "${workspaceFolder}/build_debug", "--parallel", "4"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "dependsOn": "CMake: Configure Debug + Logs",
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake: Configure Release",
+            "type": "process",
+            "command": "cmake",
+            "args": [
+                "-S", "${workspaceFolder}",
+                "-B", "${workspaceFolder}/build_release",
+                "-G", "Ninja",
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/cmake/arm-none-eabi-gcc.cmake",
+                "-DCOMPASS_MODEL=MCG505"
+            ],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake: Build Release",
+            "type": "process",
+            "command": "cmake",
+            "args": ["--build", "${workspaceFolder}/build_release", "--parallel", "4"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "dependsOn": "CMake: Configure Release",
+            "problemMatcher": []
+        },
+        {
+            "label": "J-Link: Flash Debug + Logs",
             "type": "process",
             "command": "JLink.exe",
-            "args": [
-                "-NoGui",
-                "1",
-                "-CommandFile",
-                "${workspaceFolder}/.vscode/jlink_flash.jlink"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}"
-            },
-            "dependsOn": "CMake: Build",
+            "args": ["-NoGui", "1", "-CommandFile", "${workspaceFolder}/.vscode/jlink_flash_debug.jlink"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "dependsOn": "CMake: Build Debug + Logs",
+            "problemMatcher": []
+        },
+        {
+            "label": "J-Link: Flash Release",
+            "type": "process",
+            "command": "JLink.exe",
+            "args": ["-NoGui", "1", "-CommandFile", "${workspaceFolder}/.vscode/jlink_flash_release.jlink"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "dependsOn": "CMake: Build Release",
             "problemMatcher": []
         },
         {
@@ -57,18 +73,12 @@
             "type": "process",
             "command": "JLinkRTTViewer.exe",
             "args": [
-                "-device",
-                "N32G4FRHE",
-                "-if",
-                "SWD",
-                "-speed",
-                "4000",
-                "-autoconnect",
-                "1"
+                "-device", "N32G4FRHE",
+                "-if", "SWD",
+                "-speed", "4000",
+                "-autoconnect", "1"
             ],
-            "options": {
-                "cwd": "${workspaceFolder}"
-            },
+            "options": { "cwd": "${workspaceFolder}" },
             "problemMatcher": []
         }
     ]

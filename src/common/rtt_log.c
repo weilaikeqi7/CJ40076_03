@@ -64,8 +64,10 @@ void rtt_write(const char* str)
 {
     unsigned long wr;
     unsigned long rd;
+    uint32_t      primask;
 
-    /* 关中断保护写游标；末尾无条件开中断，不能在要求保持关中断的上下文调用。 */
+    /* 保留调用前的中断状态，允许调试日志在临界区中安全调用。 */
+    primask = __get_PRIMASK();
     __disable_irq();
     while (*str != '\0')
     {
@@ -80,7 +82,10 @@ void rtt_write(const char* str)
         rtt_up_buf[wr]           = *str++;
         _SEGGER_RTT.up[0].wr_off = (wr + 1U) % RTT_UP_BUF_SIZE;
     }
-    __enable_irq();
+    if ((primask & 1U) == 0U)
+    {
+        __enable_irq();
+    }
 }
 
 void rtt_printf(const char* fmt, ...)

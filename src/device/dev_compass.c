@@ -5,7 +5,7 @@
 #include "dev_compass.h"
 #include "bsp_power.h"
 #include "bsp_uart.h"
-#include "rtt_log.h"
+#include "debug_log.h"
 #include "FreeRTOS.h"
 #include "task.h"
 
@@ -20,6 +20,9 @@ static compass_data_t s_data;
 static compass_cal_state_t s_cal;
 static uint8_t s_rx[RX_CAPACITY];
 static size_t s_rx_len;
+static uint32_t s_rx_bytes_total;
+static uint32_t s_rx_frames_total;
+static uint32_t s_rx_crc_errors;
 static volatile bool s_powered;
 static TickType_t s_ready_tick;
 static bool s_settling; /* 就绪后锁存，避免长期运行跨半个 Tick 周期被误判为未上电。 */
@@ -204,6 +207,7 @@ void compass_step(void)
     taskEXIT_CRITICAL();
     /* 仅暂停任务切换，串口发送期间保持中断开启，避免丢失 GNSS 接收字节。
      * 供电与命令接口仅供任务调用，因此关机不会插入此段固定长度发送。 */
+    DBG_RAW_HEX("COMPASS_TX", step->bytes, step->len);
     bsp_uart_write(COMPASS_UART, step->bytes, step->len);
     s_sent_tick = xTaskGetTickCount();
     s_wait_ticks = pdMS_TO_TICKS(step->wait_ms);
@@ -240,6 +244,9 @@ void compass_power_ctl(bool on)
         start_sequence(s_setup, ARRAY_COUNT(s_setup), false);
     }
     bsp_pwr_compass(on);
+    DBG_LOGI("[DBG][COMPASS] power=%u uart=%u settle_ms=%u\r\n", on ? 1U : 0U,
+             (unsigned int)(COMPASS_MODEL == COMPASS_MODEL_JY901B ? 9600U : 38400U),
+             on ? 500U : 0U);
     bsp_uart_flush_rx(COMPASS_UART);
     taskEXIT_CRITICAL();
 }
@@ -269,7 +276,7 @@ static void publish_data(const compass_data_t* data)
     taskENTER_CRITICAL();
     s_data = *data;
     taskEXIT_CRITICAL();
-    LOGI("[DATA][COMPASS] model=%s heading=%.3f pitch=%.3f roll=%.3f\r\n",
+    DBG_LOGI("[DATA][COMPASS] model=%s heading=%.3f pitch=%.3f roll=%.3f\r\n",
          compass_model_name(), data->heading, data->pitch, data->roll);
 }
 
@@ -364,6 +371,7 @@ void compass_poll(void)
         }
         if (s_rx_len == sizeof(s_rx)) drop_rx(1);
         s_rx[s_rx_len++] = byte;
+        s_rx_bytes_total++;
         while (s_rx_len != 0)
         {
             size_t len;
@@ -373,9 +381,15 @@ void compass_poll(void)
             if (s_rx[0] != 0x55) { drop_rx(1); continue; }
             if (s_rx_len < 11) break;
             len = 11;
-            rtt_raw_hex("COMPASS", s_rx, 11U);
+            DBG_RAW_HEX("COMPASS", s_rx, 11U);
             for (i = 0; i < 10; ++i) sum = (uint8_t)(sum + s_rx[i]);
-            if (sum != s_rx[10]) { drop_rx(1); continue; }
+            if (sum != s_rx[10])
+            {
+                DBG_LOGW("[DBG][COMPASS] JY901B checksum_invalid expected=0x%02X got=0x%02X\r\n",
+                         (unsigned int)sum, (unsigned int)s_rx[10]);
+                drop_rx(1);
+                continue;
+            }
             if (s_rx[1] == 0x53)
             {
                 compass_data_t next;
@@ -426,15 +440,28 @@ void compass_poll(void)
             }
             if (s_rx_len >= len)
             {
-                rtt_raw_hex("COMPASS", s_rx, len);
+                DBG_RAW_HEX("COMPASS", s_rx, len);
             }
-            if (crc16(s_rx, len - 2) != (uint16_t)(((uint16_t)s_rx[len - 2] << 8) | s_rx[len - 1]))
             {
-                drop_rx(1);
-                continue;
+                uint16_t expected_crc = crc16(s_rx, len - 2);
+                uint16_t received_crc = (uint16_t)(((uint16_t)s_rx[len - 2] << 8) | s_rx[len - 1]);
+                if (expected_crc != received_crc)
+                {
+                    s_rx_crc_errors++;
+                    DBG_LOGW("[DBG][COMPASS] CRC_invalid len=%u expected=0x%04X got=0x%04X\r\n",
+                             (unsigned int)len, (unsigned int)expected_crc, (unsigned int)received_crc);
+                    drop_rx(1);
+                    continue;
+                }
             }
 #if COMPASS_MODEL == COMPASS_MODEL_MCG505
-            if (s_rx[3] == 0) handle_packet(s_rx[4], s_rx + 5, len - 7);
+            if (s_rx[3] == 0)
+            {
+                s_rx_frames_total++;
+                DBG_LOGI("[DBG][COMPASS] RX command=0x%02X payload_len=%u\r\n",
+                         (unsigned int)s_rx[4], (unsigned int)(len - 7U));
+                handle_packet(s_rx[4], s_rx + 5, len - 7);
+            }
 #else
             handle_packet(s_rx[2], s_rx + 3, len - 5);
 #endif
@@ -479,12 +506,24 @@ bool compass_is_alive(uint32_t timeout_ms)
 bool compass_self_check(uint32_t timeout_ms)
 {
     TickType_t start = xTaskGetTickCount();
+    DBG_LOGI("[DBG][COMPASS] self_check_begin timeout_ms=%u uart_available=%u rx_bytes=%lu rx_frames=%lu crc_errors=%lu\r\n",
+             (unsigned int)timeout_ms, (unsigned int)bsp_uart_available(COMPASS_UART),
+             (unsigned long)s_rx_bytes_total, (unsigned long)s_rx_frames_total,
+             (unsigned long)s_rx_crc_errors);
     while ((TickType_t)(xTaskGetTickCount() - start) < pdMS_TO_TICKS(timeout_ms))
     {
         compass_poll();
-        if (compass_is_alive(timeout_ms)) return true;
+        if (compass_is_alive(timeout_ms))
+        {
+            DBG_LOGI("[DBG][COMPASS] self_check_frame_received\r\n");
+            return true;
+        }
         vTaskDelay(pdMS_TO_TICKS(20U));
     }
+    DBG_LOGW("[DBG][COMPASS] self_check_timeout uart_available=%u rx_bytes=%lu rx_frames=%lu crc_errors=%lu\r\n",
+             (unsigned int)bsp_uart_available(COMPASS_UART),
+             (unsigned long)s_rx_bytes_total, (unsigned long)s_rx_frames_total,
+             (unsigned long)s_rx_crc_errors);
     return false;
 }
 

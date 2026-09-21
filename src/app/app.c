@@ -8,6 +8,7 @@
 #include "app_calib.h"
 #include "app_config.h"
 #include "app_display.h"
+#include "debug_log.h"
 #include "app_key.h"
 #include "app_measure.h"
 #include "app_power.h"
@@ -256,10 +257,13 @@ static void startup_self_check(void)
     if (compass_self_check(3000U))
     {
         LOGI("sys: %s angle frame self-check OK\r\n", compass_model_name());
+        DBG_LOGI("[DBG][COMPASS] self_check=PASS\r\n");
     }
     else
     {
         LOGI("sys: %s self-check FAILED (no angle frame)\r\n", compass_model_name());
+        DBG_LOGW("[DBG][COMPASS] self_check=FAIL ready=%u alive=%u\r\n",
+                 compass_is_ready() ? 1U : 0U, compass_is_alive(3000U) ? 1U : 0U);
     }
 }
 

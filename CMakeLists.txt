@@ -38,6 +38,13 @@ set(N32_FLOAT_ABI "hard" CACHE STRING "GCC float ABI: hard, softfp, or soft" FOR
 # 功能开关：newlib-nano 浮点打印 (%f) 支持
 option(ENABLE_PRINTF_FLOAT "Enable printf/vsnprintf float formatting in newlib-nano" ON)
 
+# 调试日志随构建类型自动切换：Debug 开启，Release 关闭。
+# 强制写入缓存，避免复用旧构建目录时保留相反的日志状态。
+set(ENABLE_DEBUG_LOG OFF CACHE BOOL "Enable raw and converted module debug logs" FORCE)
+if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug$")
+    set(ENABLE_DEBUG_LOG ON CACHE BOOL "Enable raw and converted module debug logs" FORCE)
+endif()
+
 
 # ==============================================================================
 # 3. 依赖路径与有效性校验
@@ -173,6 +180,7 @@ target_compile_definitions(${APP_TARGET} PRIVATE
     N32G4FR
     USE_STDPERIPH_DRIVER
     COMPASS_MODEL=${COMPASS_MODEL_VALUE}
+    ENABLE_DEBUG_LOG=$<BOOL:${ENABLE_DEBUG_LOG}>
 )
 
 # ==============================================================================
