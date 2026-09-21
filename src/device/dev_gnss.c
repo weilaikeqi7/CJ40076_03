@@ -352,9 +352,8 @@ static void gnss_handle_line(char* line, int len, uint32_t generation)
  */
 static void gnss_send_cmd(const char* cmd)
 {
-    DBG_LOGI("[DBG][BEIDOU] TX %s\r\n", cmd);
+    DBG_LOGI("[DBG][BEIDOU] TX %s", cmd);
     bsp_uart_write(GNSS_UART, cmd, strlen(cmd));
-    bsp_uart_write(GNSS_UART, "\r\n", 2U);
 }
 
 void gnss_init(void)
@@ -366,24 +365,24 @@ void gnss_init(void)
 
     /*
      * 根据 B 系列配置手册：只保留 GGA 语句，关闭其余冗余语句：
-     * 0: GGA (保留), 1: GSA (关), 2: GSV (关), 3: VTG (关),
-     * 4: CNR (关), 5: RMC (关), 6: CLK (关)
      * 防范环形缓冲区被 GSV/GSA 等多行冗余数据打爆
      */
-    gnss_send_cmd("$POLCFGMSG,0,0,1"); /* 确保 GGA 开启 */
-    vTaskDelay(pdMS_TO_TICKS(20U));
-    gnss_send_cmd("$POLCFGMSG,0,1,0"); /* 关闭 GSA */
-    vTaskDelay(pdMS_TO_TICKS(20U));
-    gnss_send_cmd("$POLCFGMSG,0,2,0"); /* 关闭 GSV (最大冗余源) */
-    vTaskDelay(pdMS_TO_TICKS(20U));
-    gnss_send_cmd("$POLCFGMSG,0,3,0"); /* 关闭 VTG */
-    vTaskDelay(pdMS_TO_TICKS(20U));
-    gnss_send_cmd("$POLCFGMSG,0,4,0"); /* 关闭 CNR */
-    vTaskDelay(pdMS_TO_TICKS(20U));
-    gnss_send_cmd("$POLCFGMSG,0,5,0"); /* 关闭 RMC */
-    vTaskDelay(pdMS_TO_TICKS(20U));
-    gnss_send_cmd("$POLCFGMSG,0,6,0"); /* 关闭 CLK */
-    vTaskDelay(pdMS_TO_TICKS(50U));
+    gnss_send_cmd("$POLCFGMSG,0,0,1\r\n"); /* 确保 GGA 开启 */
+    vTaskDelay(pdMS_TO_TICKS(200U));
+    gnss_send_cmd("$POLCFGMSG,0,1,0\r\n"); /* 关闭 GSA */
+    vTaskDelay(pdMS_TO_TICKS(200U));
+    gnss_send_cmd("$POLCFGMSG,0,2,0\r\n"); /* 关闭 GSV (最大冗余源) */
+    vTaskDelay(pdMS_TO_TICKS(200U));
+    gnss_send_cmd("$POLCFGMSG,0,3,0\r\n"); /* 关闭 VTG */
+    vTaskDelay(pdMS_TO_TICKS(200U));
+    gnss_send_cmd("$POLCFGMSG,0,5,0\r\n"); /* 关闭 RMC */
+    vTaskDelay(pdMS_TO_TICKS(200U));
+    gnss_send_cmd("$POLCFGMSG,0,13,0\r\n"); /* 关闭 GLL */
+    vTaskDelay(pdMS_TO_TICKS(200U));
+    gnss_send_cmd("$POLCFGNAV,10\r\n"); /* 10HZ输出 */
+    vTaskDelay(pdMS_TO_TICKS(200U));
+    gnss_send_cmd("$POLCFGSAVE\r\n"); /* 保存配置 */
+    vTaskDelay(pdMS_TO_TICKS(200U));
 
     taskENTER_CRITICAL();
     bsp_uart_flush_rx(GNSS_UART);
