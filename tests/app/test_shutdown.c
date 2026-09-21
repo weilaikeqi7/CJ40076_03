@@ -68,6 +68,8 @@ void gnss_power_ctl(bool on) { assert(!on && app_power_is_shutting_down()); }
 void ranger_power_ctl(bool on) { assert(!on && app_power_is_shutting_down()); }
 void lcd_power_off(void) { assert(app_power_is_shutting_down()); }
 void app_thermal_off(void) { assert(app_power_is_shutting_down()); }
+void app_thermal_pause(void) { assert(!app_power_is_shutting_down()); }
+void app_thermal_resume(void) { assert(!app_power_is_shutting_down()); }
 void bsp_iwdg_feed(void) {}
 void bsp_power_hold_ctrl(bool on)
 {

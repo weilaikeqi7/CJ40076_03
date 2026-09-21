@@ -81,18 +81,26 @@
 #define APP_HEATER_CTRL_PERIOD_MS   1000U
 /** 电池跌落自保门限（带载电压低于此值时强制切断加热，防止拉崩MCU与5V系统） */
 #define APP_HEATER_VBAT_SAFE_MV     3150U
+/** 加热切断后恢复加热的电压回差门限（滞环，防止 1Hz 打嗝振荡） */
+#define APP_HEATER_VBAT_RESUME_MV   3300U
 /** 极寒加热起步充裕电压门限 */
 #define APP_HEATER_VBAT_RICH_MV     3500U
-/** 控温目标门限（0.1℃）：T > 15℃ 彻底关闭；0℃~10℃ 保温；-15℃~0℃ 快速升温；<-15℃ 极寒预热 */
+/** 控温目标门限（0.1℃）：T > 15℃ 彻底关闭；0℃~15℃ 保温；-5℃~0℃ 快速升温；<-5℃ 极寒预热 */
 #define APP_HEATER_TEMP_OFF_C10     150   /* 15.0℃ 停温切断 */
 #define APP_HEATER_TEMP_WARM_C10    0     /* 0.0℃ 保温门限 */
-#define APP_HEATER_TEMP_COLD_C10    (-150)/* -15.0℃ 极寒分界 */
+#define APP_HEATER_TEMP_COLD_C10    (-50) /* -5.0℃ 极寒分界（屏幕工作下限 -10℃，留 5℃ 余量） */
+/** 温度滞环（0.1℃）：升档/降档均要求越过门限 ±0.5℃ 才切换，防止 NTC 抖动导致档位来回跳 */
+#define APP_HEATER_TEMP_HYST_C10    5
 
 /** 各区间 PWM 占空比千分比 */
 #define APP_HEATER_DUTY_COLD_HIGH   400U  /* 40% (电压充裕时极寒快速升温) */
 #define APP_HEATER_DUTY_COLD_LOW    200U  /* 20% (电压较低时小电流温和预热唤醒) */
-#define APP_HEATER_DUTY_WARM_UP     350U  /* 35% (-15℃~0℃ 常规快速升温) */
+#define APP_HEATER_DUTY_WARM_UP     350U  /* 35% (-5℃~0℃ 常规快速升温) */
 #define APP_HEATER_DUTY_KEEP_WARM   150U  /* 15% (0℃~15℃ 维持液晶响应) */
+/** 冷启动自热占空比：电池电压低于恢复门限时先给电池自热，禁止直接拉加热丝 */
+#define APP_HEATER_DUTY_PREWARM     100U  /* 10% 自热档 */
+/** 冷启动自热时间（秒）：温度 < -15℃ 且电压低于恢复门限时，先按 10% 预热 */
+#define APP_HEATER_PREWARM_SEC      5U
 
 /* ------------------------------ 计数 ------------------------------ */
 #define APP_COUNT_MAX 9999U

@@ -40,8 +40,15 @@ void app_power_check(void)
 {
     /* 滞环回差（mV）：防止电池开路电压在分档临界点抖动跳格 */
     const uint32_t HYST_MV = 30U;
-    uint32_t mv = bsp_battery_mv();
+    uint32_t mv;
     uint8_t  lvl;
+
+    /* 采样前暂停加热 PWM：3.5Ω 加热丝导通电流会显著拉低电池电压，
+       暂停约 6 点滤波采样的几毫秒对屏幕温度无影响（热惯性以分钟计）。
+       注意：测距激光脉冲期间不做避让，带载读数本就是欠压判据所需的应力值。 */
+    app_thermal_pause();
+    mv = bsp_battery_mv();
+    app_thermal_resume();
 
     taskENTER_CRITICAL();
     s_batt_mv = mv;

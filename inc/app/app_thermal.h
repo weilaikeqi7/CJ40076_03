@@ -31,6 +31,16 @@ void app_thermal_step(uint32_t vbat_mv);
  */
 void app_thermal_off(void);
 
+/**
+ * @brief 电池采样期间暂停加热 PWM（恢复当前占空比由 app_thermal_resume 完成）。
+ *        消除 3.5Ω 加热丝导通电流对电池电压读数的污染。
+ * @note 仅供电源任务在 ADC 采样前调用；未初始化时为空操作。
+ */
+void app_thermal_pause(void);
+
+/** @brief 恢复被 app_thermal_pause 暂停的加热占空比。 */
+void app_thermal_resume(void);
+
 #ifdef __cplusplus
 }
 #endif

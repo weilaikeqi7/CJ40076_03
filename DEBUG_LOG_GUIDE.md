@@ -80,7 +80,7 @@ CRC校验值为 `0x1BB4`，正确解析日志为：
 | `[STATUS][BEIDOU]` | 北斗供电、settling、串口积压、定位质量、卫星数、GGA龄、经纬度与高程 | 1s（仅供电时） |
 | `[STATUS][RANGER]` | 测距机供电、在线状态、末帧龄、串口积压、错误码 | 2s |
 | `[STATUS][POWER]` | 带载电池电压 mV、电量档位（档位变化或电压变化≥20mV 时打印） | 500ms 检查 |
-| `[STATUS][THERM]` | NTC 温度（0.1℃）、电池电压、占空比（‰）、状态与原因 | 1s |
+| `[STATUS][THERM]` | NTC 温度（0.1℃）、电池电压、占空比（‰）、状态与原因（含 laser_derate / prewarm） | 1s |
 | `[EVENT][KEY]` | 按键事件码、参数、双键当前状态、是否校准页 | 事件驱动 |
 | `[STATE][MEASURE]` | 测量状态机 SETUP/COMMAND_WAIT 状态迁移 | 事件驱动 |
 | `[EVENT][MEASURE]` | 单次指令发出时的姿态快照、轮次发布（近/远目标、帧数、结束原因 silence/out_of_range/timeout） | 事件驱动 |
