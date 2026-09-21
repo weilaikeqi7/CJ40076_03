@@ -134,7 +134,7 @@ uint32_t bsp_battery_mv(void)
         return 0U; /* 交由现有欠压关机和加热保护逻辑安全停机。 */
     }
 
-    /* VBAT = raw * Vref / 4096 * (20K + 10K) / 10K */
+    /* VBAT = raw * Vref / 4096 * (R9 + R13) / R13 = raw * 3300 / 4096 * 30 / 20 = raw * 3300 * 1.5 / 4096 */
     return raw * BSP_ADC_VREF_MV * BSP_VBAT_DIVIDER_NUM / (BSP_ADC_FULL * BSP_VBAT_DIVIDER_DEN);
 }
 

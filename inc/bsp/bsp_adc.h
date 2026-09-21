@@ -23,9 +23,9 @@ extern "C" {
 #define BSP_NTC_ADC_PIN  GPIO_PIN_1
 #define BSP_NTC_ADC_CH   ADC_CH_1
 
-/** 电池分压比：R24=20K 上臂，R27=10K 下臂，VBAT = Vadc * 3 */
-#define BSP_VBAT_DIVIDER_NUM 3U
-#define BSP_VBAT_DIVIDER_DEN 1U
+/** 电池分压比：R9=10K 上臂，R13=20K 下臂（电源页 电池电压检测电路），VBAT = Vadc * 30/20 = 1.5 */
+#define BSP_VBAT_DIVIDER_NUM 30U
+#define BSP_VBAT_DIVIDER_DEN 20U
 
 /** ADC 参考电压（VDD = 3.3V）与分辨率 */
 #define BSP_ADC_VREF_MV 3300U
