@@ -10,10 +10,11 @@
 
 #include <string.h>
 
-#define LCD_DISP_PORT GPIOA
-#define LCD_DISP_PIN  GPIO_PIN_6
+/* 主板原理图（MCU V1.0）：DISP=PB14，EI=PA6，LP=PB13，FR=PA7（TIM3 方波） */
+#define LCD_DISP_PORT GPIOB
+#define LCD_DISP_PIN  GPIO_PIN_14
 #define LCD_EI_PORT   GPIOA
-#define LCD_EI_PIN    GPIO_PIN_7
+#define LCD_EI_PIN    GPIO_PIN_6
 #define LCD_LP_PORT   GPIOB
 #define LCD_LP_PIN    GPIO_PIN_13
 
@@ -69,13 +70,14 @@ void lcd_init(void)
 
     RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOA | RCC_APB2_PERIPH_GPIOB, ENABLE);
 
+    /* EI 在 PA6；DISP/LP 在 PB14/PB13，全部推挽输出（规格书要求） */
     GPIO_InitStruct(&gpio_init);
-    gpio_init.Pin        = LCD_DISP_PIN | LCD_EI_PIN;
+    gpio_init.Pin        = LCD_EI_PIN;
     gpio_init.GPIO_Mode  = GPIO_Mode_Out_PP;
     gpio_init.GPIO_Speed = GPIO_Speed_10MHz;
-    GPIO_InitPeripheral(GPIOA, &gpio_init);
+    GPIO_InitPeripheral(LCD_EI_PORT, &gpio_init);
 
-    gpio_init.Pin = LCD_LP_PIN;
+    gpio_init.Pin = LCD_DISP_PIN | LCD_LP_PIN;
     GPIO_InitPeripheral(GPIOB, &gpio_init);
 
     /* 空闲电平全低，显示禁止 */

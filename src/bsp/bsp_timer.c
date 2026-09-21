@@ -18,9 +18,9 @@ void bsp_timer_fr_start(void)
     uint32_t             arr;
 
     RCC_EnableAPB1PeriphClk(RCC_APB1_PERIPH_TIM3, ENABLE);
-    RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOB, ENABLE);
+    RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOA, ENABLE);
 
-    /* PB14 推挽输出，默认低电平 */
+    /* PA7 推挽输出，默认低电平 */
     GPIO_InitStruct(&gpio_init);
     gpio_init.Pin        = BSP_TIMER_FR_PIN;
     gpio_init.GPIO_Mode  = GPIO_Mode_Out_PP;

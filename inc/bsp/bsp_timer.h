@@ -19,9 +19,9 @@ extern "C" {
 /** FR 交流方波频率（50HZ，满足 P1237 40~128Hz 要求） */
 #define BSP_TIMER_FR_FREQ_HZ 50U
 
-/** FR 输出引脚：PB14 */
-#define BSP_TIMER_FR_PORT GPIOB
-#define BSP_TIMER_FR_PIN  GPIO_PIN_14
+/** FR 输出引脚：PA7（主板原理图 PA7_FR，TIM3 中断翻转） */
+#define BSP_TIMER_FR_PORT GPIOA
+#define BSP_TIMER_FR_PIN  GPIO_PIN_7
 
 /**
  * @brief 初始化并启动 TIM3，以两倍 BSP_TIMER_FR_FREQ_HZ 的中断频率翻转 FR。
