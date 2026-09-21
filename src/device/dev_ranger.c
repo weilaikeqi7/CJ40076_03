@@ -6,6 +6,7 @@
 
 #include "bsp_power.h"
 #include "bsp_uart.h"
+#include "rtt_log.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -129,6 +130,10 @@ static void ranger_handle_frame(uint8_t cmd, const uint8_t* params, uint8_t para
                 item.distance_m = (float)dist_int + (float)dist_frac / 10.0f;
             }
 
+            LOGI("[DATA][RANGER] cmd=0x%02X status=0x%02X target=%u valid=%u distance=%.1fm\r\n",
+                 (unsigned int)cmd, (unsigned int)item.status, (unsigned int)item.target_no,
+                 item.distance_m >= 0.0f ? 1U : 0U, item.distance_m);
+
             uint8_t next_head = (uint8_t)((range_q_head + 1U) % RANGER_QUEUE_SIZE);
             if (next_head != range_q_tail)
             {
@@ -224,9 +229,14 @@ void ranger_poll(void)
                     sum = (uint8_t)(sum + frame[i]);
                 }
 
+                rtt_raw_hex("RANGER", frame, total);
                 if (sum == frame[total - 1U] && frame[3] == RANGER_DEV)
                 {
                     ranger_handle_frame(frame[4], &frame[5], (uint8_t)(frame[2] - 2U));
+                }
+                else
+                {
+                    LOGW("[DATA][RANGER] checksum_or_device_invalid\r\n");
                 }
                 index = 0U;
             }

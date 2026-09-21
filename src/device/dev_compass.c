@@ -5,6 +5,7 @@
 #include "dev_compass.h"
 #include "bsp_power.h"
 #include "bsp_uart.h"
+#include "rtt_log.h"
 #include "FreeRTOS.h"
 #include "task.h"
 
@@ -268,6 +269,8 @@ static void publish_data(const compass_data_t* data)
     taskENTER_CRITICAL();
     s_data = *data;
     taskEXIT_CRITICAL();
+    LOGI("[DATA][COMPASS] model=%s heading=%.3f pitch=%.3f roll=%.3f\r\n",
+         compass_model_name(), data->heading, data->pitch, data->roll);
 }
 
 #if COMPASS_MODEL != COMPASS_MODEL_JY901B
@@ -370,6 +373,7 @@ void compass_poll(void)
             if (s_rx[0] != 0x55) { drop_rx(1); continue; }
             if (s_rx_len < 11) break;
             len = 11;
+            rtt_raw_hex("COMPASS", s_rx, 11U);
             for (i = 0; i < 10; ++i) sum = (uint8_t)(sum + s_rx[i]);
             if (sum != s_rx[10]) { drop_rx(1); continue; }
             if (s_rx[1] == 0x53)
@@ -419,6 +423,10 @@ void compass_poll(void)
                 if (found) continue;
 #endif
                 break;
+            }
+            if (s_rx_len >= len)
+            {
+                rtt_raw_hex("COMPASS", s_rx, len);
             }
             if (crc16(s_rx, len - 2) != (uint16_t)(((uint16_t)s_rx[len - 2] << 8) | s_rx[len - 1]))
             {
