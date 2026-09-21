@@ -1,6 +1,7 @@
 {
     "cmake.generator": "Ninja",
-    "cmake.buildDirectory": "${workspaceFolder}/build_debug",
+    "cmake.buildDirectory": "${workspaceFolder}/build_${buildType}",
+    "cmake.copyCompileCommands": "${workspaceFolder}/compile_commands.json",
     "cmake.configureArgs": [
         "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/cmake/arm-none-eabi-gcc.cmake",
         "-DCOMPASS_MODEL=MCG505"
@@ -8,7 +9,7 @@
     "cmake.configureOnOpen": true,
     "C_Cpp.intelliSenseEngine": "disabled",
     "clangd.arguments": [
-        "--compile-commands-dir=${workspaceFolder}/build_debug",
+        "--compile-commands-dir=${workspaceFolder}",
         "--query-driver=**/arm-none-eabi-*"
     ]
 }

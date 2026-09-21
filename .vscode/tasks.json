@@ -2,6 +2,15 @@
     "version": "2.0.0",
     "tasks": [
         {
+            "label": "CMake: Build Selected Variant",
+            "type": "cmake",
+            "command": "build",
+            "targets": ["all"],
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": [],
+            "detail": "Build the Debug or Release variant selected in the CMake panel."
+        },
+        {
             "label": "CMake: Configure Debug + Logs",
             "type": "process",
             "command": "cmake",
@@ -23,7 +32,7 @@
             "args": ["--build", "${workspaceFolder}/build_debug", "--parallel", "4"],
             "options": { "cwd": "${workspaceFolder}" },
             "dependsOn": "CMake: Configure Debug + Logs",
-            "group": { "kind": "build", "isDefault": true },
+            "group": "build",
             "problemMatcher": []
         },
         {

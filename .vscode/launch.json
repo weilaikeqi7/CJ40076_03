@@ -2,6 +2,21 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "J-Link CJ40076 (Selected CMake Variant)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "jlink",
+            "cwd": "${workspaceFolder}",
+            "executable": "${command:cmake.buildDirectory}/CJ40076.elf",
+            "device": "N32G4FRHE",
+            "interface": "swd",
+            "serverpath": "JLinkGDBServerCL.exe",
+            "gdbPath": "gdb-multiarch.exe",
+            "runToEntryPoint": "main",
+            "preLaunchTask": "CMake: Build Selected Variant",
+            "serverArgs": ["-speed", "1000"]
+        },
+        {
             "name": "J-Link Debug CJ40076 (Logs ON)",
             "type": "cortex-debug",
             "request": "launch",
