@@ -14,7 +14,7 @@ for rate in 1000 100; do
         printf 'Building COMPASS_MODEL=%s, tick rate=%s Hz\n' "$model" "$rate"
         "$CC" -std=c11 -Wall -Wextra -Werror -pedantic -O0 -g \
             "-DCOMPASS_MODEL=$model" "-DconfigTICK_RATE_HZ=$rate" \
-            -I"$here/stubs" -I"$root/inc/device" -I"$root/inc/bsp" \
+            -I"$here/stubs" -I"$root/inc/common" -I"$root/inc/device" -I"$root/inc/bsp" \
             "$root/src/device/dev_compass.c" "$here/test_compass.c" \
             -lm -o "$build/compass-$model.exe"
         for group in frames sequences mag power; do

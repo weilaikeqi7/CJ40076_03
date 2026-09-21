@@ -20,9 +20,11 @@ static compass_data_t s_data;
 static compass_cal_state_t s_cal;
 static uint8_t s_rx[RX_CAPACITY];
 static size_t s_rx_len;
+#if ENABLE_DEBUG_LOG
 static uint32_t s_rx_bytes_total;
 static uint32_t s_rx_frames_total;
 static uint32_t s_rx_crc_errors;
+#endif
 static volatile bool s_powered;
 static TickType_t s_ready_tick;
 static bool s_settling; /* 就绪后锁存，避免长期运行跨半个 Tick 周期被误判为未上电。 */
@@ -130,6 +132,18 @@ static float float_be(const uint8_t* data)
     memcpy(&value, &bits, sizeof(value));
     return value;
 }
+
+#if COMPASS_MODEL == COMPASS_MODEL_MCG505
+/** MCG505 实机角度数据为小端 Float32；校准评分仍按手册使用大端 Float32。 */
+static float float_le(const uint8_t* data)
+{
+    uint32_t bits = ((uint32_t)data[3] << 24) | ((uint32_t)data[2] << 16) |
+                    ((uint32_t)data[1] << 8) | data[0];
+    float value;
+    memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+#endif
 #endif
 
 #define ARRAY_COUNT(a) (sizeof(a) / sizeof((a)[0]))
@@ -245,7 +259,7 @@ void compass_power_ctl(bool on)
     }
     bsp_pwr_compass(on);
     DBG_LOGI("[DBG][COMPASS] power=%u uart=%u settle_ms=%u\r\n", on ? 1U : 0U,
-             (unsigned int)(COMPASS_MODEL == COMPASS_MODEL_JY901B ? 9600U : 38400U),
+             (unsigned int)(COMPASS_MODEL == COMPASS_MODEL_JY901B ? 9600U : 115200U),
              on ? 500U : 0U);
     bsp_uart_flush_rx(COMPASS_UART);
     taskEXIT_CRITICAL();
@@ -256,7 +270,7 @@ void compass_init(void)
 #if COMPASS_MODEL == COMPASS_MODEL_JY901B
     bsp_uart_init(COMPASS_UART, 9600U);
 #else
-    bsp_uart_init(COMPASS_UART, 38400U);
+    bsp_uart_init(COMPASS_UART, 115200U);
 #endif
     compass_power_ctl(true);
     memset(&s_cal, 0, sizeof(s_cal));
@@ -301,7 +315,11 @@ static void handle_packet(uint8_t command, const uint8_t* payload, size_t len)
         }
         for (i = 1; i + 5 <= len; i += 5)
         {
+#if COMPASS_MODEL == COMPASS_MODEL_MCG505
+            float value = float_le(payload + i + 1);
+#else
             float value = float_be(payload + i + 1);
+#endif
             if (!isfinite(value))
             {
                 return;
@@ -371,7 +389,9 @@ void compass_poll(void)
         }
         if (s_rx_len == sizeof(s_rx)) drop_rx(1);
         s_rx[s_rx_len++] = byte;
+#if ENABLE_DEBUG_LOG
         s_rx_bytes_total++;
+#endif
         while (s_rx_len != 0)
         {
             size_t len;
@@ -447,7 +467,9 @@ void compass_poll(void)
                 uint16_t received_crc = (uint16_t)(((uint16_t)s_rx[len - 2] << 8) | s_rx[len - 1]);
                 if (expected_crc != received_crc)
                 {
+#if ENABLE_DEBUG_LOG
                     s_rx_crc_errors++;
+#endif
                     DBG_LOGW("[DBG][COMPASS] CRC_invalid len=%u expected=0x%04X got=0x%04X\r\n",
                              (unsigned int)len, (unsigned int)expected_crc, (unsigned int)received_crc);
                     drop_rx(1);
@@ -457,7 +479,9 @@ void compass_poll(void)
 #if COMPASS_MODEL == COMPASS_MODEL_MCG505
             if (s_rx[3] == 0)
             {
+#if ENABLE_DEBUG_LOG
                 s_rx_frames_total++;
+#endif
                 DBG_LOGI("[DBG][COMPASS] RX command=0x%02X payload_len=%u\r\n",
                          (unsigned int)s_rx[4], (unsigned int)(len - 7U));
                 handle_packet(s_rx[4], s_rx + 5, len - 7);

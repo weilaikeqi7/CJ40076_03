@@ -224,12 +224,23 @@ static void gnss_handle_rmc(char* line)
     }
 
     gnss_data.tick_rmc = xTaskGetTickCount();
-    DBG_LOGI("[DATA][BEIDOU][RMC] valid=%u utc=%02u:%02u:%02u date=20%02u-%02u-%02u lat=%.7f lon=%.7f speed_kn=%.3f speed_kmh=%.3f course=%.3f mode=%c\r\n",
-         gnss_data.valid ? 1U : 0U, (unsigned int)gnss_data.utc_hour, (unsigned int)gnss_data.utc_min,
-         (unsigned int)gnss_data.utc_sec, (unsigned int)gnss_data.date_year,
-         (unsigned int)gnss_data.date_month, (unsigned int)gnss_data.date_day, gnss_data.latitude,
-         gnss_data.longitude, gnss_data.speed_knots, gnss_data.speed_kmh, gnss_data.course_deg,
-         gnss_data.pos_mode != '\0' ? gnss_data.pos_mode : '-');
+    /* 每行控制在 RTT 的 127 字节限制内；未定位时不把空字段转换值当作有效读数。 */
+    if (!gnss_data.valid || fields[3][0] == '\0' || fields[5][0] == '\0')
+    {
+        DBG_LOGI("[DATA][BEIDOU][RMC] valid=0 position_unavailable\r\n");
+    }
+    else
+    {
+        DBG_LOGI("[DATA][BEIDOU][RMC] valid=1 lat=%.7f lon=%.7f\r\n",
+                 gnss_data.latitude, gnss_data.longitude);
+        DBG_LOGI("[DATA][BEIDOU][RMC] utc=%02u:%02u:%02u date=20%02u-%02u-%02u\r\n",
+                 (unsigned int)gnss_data.utc_hour, (unsigned int)gnss_data.utc_min,
+                 (unsigned int)gnss_data.utc_sec, (unsigned int)gnss_data.date_year,
+                 (unsigned int)gnss_data.date_month, (unsigned int)gnss_data.date_day);
+        DBG_LOGI("[DATA][BEIDOU][RMC] speed_kn=%.3f speed_kmh=%.3f course=%.3f mode=%c\r\n",
+                 gnss_data.speed_knots, gnss_data.speed_kmh, gnss_data.course_deg,
+                 gnss_data.pos_mode != '\0' ? gnss_data.pos_mode : '-');
+    }
 }
 
 /** $xxGGA,UTC,LAT,NS,LON,EW,QUAL,NUMSV,HDOP,ALT,M,GEOID,M,AGE,REFID*cs */

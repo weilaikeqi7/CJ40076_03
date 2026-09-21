@@ -144,7 +144,7 @@ static void fixture(void)
     compass_init();
     CHECK(power_on && power_calls == 1 && flush_calls == 2 && init_calls == 1);
     CHECK(critical_depth == 0);
-    CHECK(baud_rate == (COMPASS_MODEL == 1 ? 9600U : 38400U));
+    CHECK(baud_rate == (COMPASS_MODEL == 1 ? 9600U : 115200U));
     CHECK(strcmp(compass_model_name(), COMPASS_MODEL == 1 ? "JY901B" :
                  COMPASS_MODEL == 2 ? "MCP406" : "MCG505") == 0);
     end = expect_trace(setup, COUNT(setup), pdMS_TO_TICKS(500));
@@ -248,6 +248,14 @@ static size_t angle_frame(uint8_t *frame, float heading, float pitch, float roll
     for (i = 0; i < 3; ++i) {
         payload[1 + i*5] = ids[i];
         put_float(payload + 2 + i*5, values[i]);
+#if COMPASS_MODEL == 3
+        /* Angle records on MCG505 are little-endian; scores remain big-endian. */
+        {
+            uint8_t *p = payload + 2 + i*5;
+            uint8_t tmp = p[0]; p[0] = p[3]; p[3] = tmp;
+            tmp = p[1]; p[1] = p[2]; p[2] = tmp;
+        }
+#endif
     }
     return packet(frame, cmd, payload, sizeof(payload));
 }
@@ -340,6 +348,27 @@ static void test_frames(void)
     ++now; feed(frame, len); check_data(0, 90, -123.5f, tick);
     len = angle_frame(frame, 0, INFINITY, 0);
     feed(frame, len); check_data(0, 90, -123.5f, tick);
+#endif
+#if COMPASS_MODEL == 3
+    {
+        /* Captured from the user's MCG505 at 115200 baud, including its CRC. */
+        static const uint8_t captured[] = {
+            0xAA, 0x55, 0x17, 0x00, 0x06, 0x03,
+            0x01, 0x15, 0x52, 0xF6, 0x42,
+            0x02, 0x64, 0x21, 0xA4, 0xBF,
+            0x03, 0xF2, 0x7F, 0xB6, 0x42, 0x1B, 0xB4
+        };
+        CHECK(wire_crc(captured, sizeof(captured) - 2) == 0x1BB4);
+        for (split = 1; split < sizeof(captured); ++split) {
+            tick = compass_get_data()->tick_angle;
+            ++now;
+            feed(captured, split);
+            CHECK(compass_get_data()->tick_angle == tick);
+            feed(captured + split, sizeof(captured) - split);
+            check_data(123.160316f, -1.282269f, 91.249893f, now);
+        }
+        puts("  PASS captured MCG505 frame: heading=123.160 pitch=-1.282 roll=91.250");
+    }
 #endif
     CHECK(tx_count == 0);
     puts("  PASS angle decoding, fragmentation, bad frame/noise recovery, liveness");
