@@ -48,6 +48,7 @@ static uint32_t           last_tx_tick;
 static bool               tx_started;
 static uint8_t            rx_frame[RANGER_FRAME_MAX];
 static uint8_t            rx_index;
+static bool               ranger_powered;
 
 /* ------------------------------ 命令发送 ------------------------------ */
 
@@ -177,9 +178,32 @@ static void ranger_handle_frame(uint8_t cmd, const uint8_t* params, uint8_t para
     }
 }
 
+#if ENABLE_DEBUG_LOG
+static void ranger_debug_status(void)
+{
+    static TickType_t last_tick;
+    static bool first = true;
+    TickType_t now = xTaskGetTickCount();
+    uint32_t age_ms = last_frame_tick == 0U
+                          ? 0U
+                          : (uint32_t)(((uint64_t)(now - last_frame_tick) * 1000U) /
+                                       configTICK_RATE_HZ);
+    if (!first && (TickType_t)(now - last_tick) < pdMS_TO_TICKS(2000U)) return;
+    first = false;
+    last_tick = now;
+    DBG_LOGI("[STATUS][RANGER] power=%u alive=%u age_ms=%lu uart_rx=%u last_error=0x%02X\r\n",
+             ranger_powered ? 1U : 0U, ranger_is_alive(3000U) ? 1U : 0U,
+             (unsigned long)age_ms, (unsigned int)bsp_uart_available(RANGER_UART),
+             (unsigned int)last_error);
+}
+#endif
+
 void ranger_poll(void)
 {
     uint8_t* frame = rx_frame;
+#if ENABLE_DEBUG_LOG
+    ranger_debug_status();
+#endif
     uint8_t index = rx_index;
     uint8_t byte;
 
@@ -291,11 +315,15 @@ void ranger_init(void)
     tx_started = false;
     last_tx_tick = 0U;
     rx_index = 0U;
+    ranger_powered = true;
+    DBG_LOGI("[STATE][RANGER] power=1 baud=%u\r\n", (unsigned int)RANGER_BAUD);
 }
 
 void ranger_power_ctl(bool on)
 {
     bsp_pwr_ranger(on);
+    ranger_powered = on;
+    DBG_LOGI("[STATE][RANGER] power=%u\r\n", on ? 1U : 0U);
 }
 
 void ranger_deinit(void)
@@ -303,6 +331,8 @@ void ranger_deinit(void)
     ranger_range_stop();
     vTaskDelay(pdMS_TO_TICKS(100U));
     bsp_pwr_ranger(false);
+    ranger_powered = false;
+    DBG_LOGI("[STATE][RANGER] power=0\r\n");
 }
 
 void ranger_self_check(void)

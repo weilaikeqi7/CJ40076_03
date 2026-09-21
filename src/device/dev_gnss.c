@@ -305,8 +305,18 @@ static void gnss_handle_gga(char* line, uint32_t generation)
     gnss_data.tick_gga = tick_gga;
     taskEXIT_CRITICAL();
 
-    DBG_LOGI("[DATA][BEIDOU][GGA] fix=%u sats=%u hdop=%.2f lat=%.7f lon=%.7f alt=%.3fm\r\n",
-         (unsigned int)fix_quality, (unsigned int)sats_used, hdop, latitude, longitude, altitude_m);
+    if (!has_position)
+    {
+        DBG_LOGI("[DATA][BEIDOU][GGA] valid=0 fix=%u sats=%u hdop=%.2f position_unavailable\r\n",
+                 (unsigned int)fix_quality, (unsigned int)sats_used, hdop);
+    }
+    else
+    {
+        DBG_LOGI("[DATA][BEIDOU][GGA] valid=1 fix=%u sats=%u hdop=%.2f\r\n",
+                 (unsigned int)fix_quality, (unsigned int)sats_used, hdop);
+        DBG_LOGI("[DATA][BEIDOU][GGA] lat=%.7f lon=%.7f alt=%.3fm\r\n",
+                 latitude, longitude, altitude_m);
+    }
 }
 
 static void gnss_handle_line(char* line, int len, uint32_t generation)
@@ -414,6 +424,30 @@ void gnss_power_ctl(bool on)
     taskEXIT_CRITICAL();
 }
 
+#if ENABLE_DEBUG_LOG
+static void gnss_debug_status(bool powered, bool settling)
+{
+    static TickType_t last_tick;
+    static bool first = true;
+    TickType_t now = xTaskGetTickCount();
+    gnss_data_t data;
+
+    if (!first && (TickType_t)(now - last_tick) < pdMS_TO_TICKS(1000U)) return;
+    first = false;
+    last_tick = now;
+    taskENTER_CRITICAL();
+    data = gnss_data;
+    taskEXIT_CRITICAL();
+    DBG_LOGI("[STATUS][BEIDOU] power=%u settling=%u rx=%u fix=%u sats=%u age_gga_ms=%lu lat=%.7f lon=%.7f alt=%.2fm\r\n",
+             powered ? 1U : 0U, settling ? 1U : 0U,
+             (unsigned int)bsp_uart_available(GNSS_UART), (unsigned int)data.fix_quality,
+             (unsigned int)data.sats_used,
+             data.tick_gga == 0U ? 0UL : (unsigned long)(((uint64_t)(now - data.tick_gga) * 1000U) /
+                                                         configTICK_RATE_HZ),
+             data.latitude, data.longitude, data.altitude_m);
+}
+#endif
+
 void gnss_poll(void)
 {
     static char     line[NMEA_LINE_MAX];
@@ -439,6 +473,9 @@ void gnss_poll(void)
         index = 0U;
         parser_generation = generation;
     }
+#if ENABLE_DEBUG_LOG
+    gnss_debug_status(powered, settling);
+#endif
     if (!powered || settling)
     {
         return;

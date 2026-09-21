@@ -6,7 +6,7 @@
 #include "app_attitude.h"
 #include "app_config.h"
 #include "dev_ranger.h"
-#include "rtt_log.h"
+#include "debug_log.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include <string.h>
@@ -45,6 +45,7 @@ static bool any_frame;
 static bool oor_received;
 static uint16_t frame_count;
 static uint8_t max_target_no;
+static const char* publish_reason = "unknown";
 
 static void round_begin(void)
 {
@@ -54,6 +55,8 @@ static void round_begin(void)
     frame_count = 0U;
     max_target_no = 0U;
     state = ST_SETUP;
+    DBG_LOGI("[STATE][MEASURE] state=SETUP mode=%u generation=%lu\r\n",
+             (unsigned int)mode, (unsigned long)request_generation);
     taskENTER_CRITICAL();
     if (generation == request_generation)
     {
@@ -66,6 +69,10 @@ static void round_begin(void)
 static void round_publish(void)
 {
     working.publish_tick = xTaskGetTickCount();
+    DBG_LOGI("[EVENT][MEASURE] publish mode=%u round=%lu near_valid=%u near_mm=%lu far_valid=%u far_mm=%lu frames=%u reason=%s\r\n",
+             (unsigned int)mode, (unsigned long)working.round_id, working.near_valid ? 1U : 0U,
+             (unsigned long)working.near_mm, working.far_valid ? 1U : 0U,
+             (unsigned long)working.far_mm, (unsigned int)frame_count, publish_reason);
     state = ST_IDLE;
     if (mode == MEAS_MODE_CONT || mode == MEAS_MODE_TEST)
     {
@@ -249,6 +256,11 @@ void measure_poll(void)
             ranger_try_set_target_mode(RANGER_TARGET_MULTI))
         {
             state = ST_COMMAND_WAIT;
+            DBG_LOGI("[STATE][MEASURE] state=COMMAND_WAIT mode=%u\r\n", (unsigned int)mode);
+        }
+        else
+        {
+            DBG_LOGW("[FAULT][MEASURE] target_mode_tx_not_ready mode=%u\r\n", (unsigned int)mode);
         }
         (void)xTaskResumeAll();
         return;
@@ -286,6 +298,13 @@ void measure_poll(void)
             taskEXIT_CRITICAL();
         }
         (void)xTaskResumeAll();
+        if (state == ST_ROUND)
+        {
+            DBG_LOGI("[EVENT][MEASURE] single_tx mode=%u round=%lu att_valid=%u heading_c01=%ld pitch_c01=%ld\r\n",
+                     (unsigned int)mode, (unsigned long)working.round_id,
+                     working.attitude_valid ? 1U : 0U, (long)working.heading_c01,
+                     (long)working.pitch_c01);
+        }
         return;
     }
     if (state != ST_ROUND)
@@ -295,12 +314,14 @@ void measure_poll(void)
     if (oor_received || (any_frame &&
         (now - last_frame_tick) >= pdMS_TO_TICKS(APP_MEASURE_SILENCE_MS)))
     {
+        publish_reason = oor_received ? "out_of_range" : "silence";
         round_finalize();
     }
     else if ((now - round_start_tick) >= pdMS_TO_TICKS(APP_MEASURE_TIMEOUT_MS))
     {
         working.near_valid = false;
         working.far_valid = false;
+        publish_reason = "timeout";
         round_publish();
     }
 }

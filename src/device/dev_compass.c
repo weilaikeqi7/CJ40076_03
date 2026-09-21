@@ -258,11 +258,11 @@ void compass_power_ctl(bool on)
         start_sequence(s_setup, ARRAY_COUNT(s_setup), false);
     }
     bsp_pwr_compass(on);
+    bsp_uart_flush_rx(COMPASS_UART);
+    taskEXIT_CRITICAL();
     DBG_LOGI("[DBG][COMPASS] power=%u uart=%u settle_ms=%u\r\n", on ? 1U : 0U,
              (unsigned int)(COMPASS_MODEL == COMPASS_MODEL_JY901B ? 9600U : 115200U),
              on ? 500U : 0U);
-    bsp_uart_flush_rx(COMPASS_UART);
-    taskEXIT_CRITICAL();
 }
 
 void compass_init(void)
@@ -290,8 +290,6 @@ static void publish_data(const compass_data_t* data)
     taskENTER_CRITICAL();
     s_data = *data;
     taskEXIT_CRITICAL();
-    DBG_LOGI("[DATA][COMPASS] model=%s heading=%.3f pitch=%.3f roll=%.3f\r\n",
-         compass_model_name(), data->heading, data->pitch, data->roll);
 }
 
 #if COMPASS_MODEL != COMPASS_MODEL_JY901B
@@ -376,11 +374,91 @@ static void drop_rx(size_t count)
     s_rx_len -= count;
 }
 
+#if ENABLE_DEBUG_LOG
+static void compass_debug_status(void)
+{
+    static TickType_t last_tick;
+    static bool        first = true;
+    TickType_t         now = xTaskGetTickCount();
+    compass_data_t     data;
+    bool               powered;
+    bool               settling;
+
+    if (!first && (TickType_t)(now - last_tick) < pdMS_TO_TICKS(1000U)) return;
+    first = false;
+    last_tick = now;
+
+    taskENTER_CRITICAL();
+    powered = s_powered;
+    settling = s_settling;
+    data = s_data;
+    taskEXIT_CRITICAL();
+
+    {
+        uint32_t age_ms = data.tick_angle == 0U
+                              ? 0U
+                              : (uint32_t)(((uint64_t)(now - data.tick_angle) * 1000U) /
+                                           configTICK_RATE_HZ);
+        bool valid = powered && !settling && data.tick_angle != 0U && age_ms < 500U;
+        const char* reason = !powered ? "powered_off" : settling ? "settling" :
+                             data.tick_angle == 0U ? "no_frame" :
+                             age_ms >= 500U ? "stale" : "valid";
+        DBG_LOGI("[STATUS][COMPASS] valid=%u reason=%s age_ms=%lu power=%u settle=%u busy=%u uart_rx=%u bytes=%lu frames=%lu crc_err=%lu\r\n",
+                 valid ? 1U : 0U, reason, (unsigned long)age_ms, powered ? 1U : 0U,
+                 settling ? 1U : 0U, compass_is_busy() ? 1U : 0U,
+                 (unsigned int)bsp_uart_available(COMPASS_UART), (unsigned long)s_rx_bytes_total,
+                 (unsigned long)s_rx_frames_total, (unsigned long)s_rx_crc_errors);
+        if (valid)
+        {
+            DBG_LOGI("[DATA][COMPASS] heading=%.3f pitch=%.3f roll=%.3f\r\n",
+                     data.heading, data.pitch, data.roll);
+        }
+    }
+}
+#endif
+
 void compass_poll(void)
 {
     uint8_t byte;
+#if ENABLE_DEBUG_LOG
+    /* 原始帧/CRC/RX 日志统一在临界区外输出；临界区内仅复制待打印帧。 */
+    uint8_t  raw_log[RX_CAPACITY];
+    size_t   raw_log_len = 0U;
+    uint8_t  raw_cmd = 0U;
+    size_t   raw_payload_len = 0U;
+    bool     raw_valid = false;
+    bool     crc_invalid = false;
+    uint16_t crc_expected = 0U, crc_received = 0U;
+    bool     jy_checksum_invalid = false;
+    uint8_t  jy_expected = 0U, jy_received = 0U;
+    compass_debug_status();
+#endif
     for (;;)
     {
+#if ENABLE_DEBUG_LOG
+        /* 上一字节解析出的日志事件，在本轮进入临界区前输出。 */
+        if (raw_log_len != 0U)
+        {
+            DBG_RAW_HEX("COMPASS", raw_log, raw_log_len);
+        }
+        if (jy_checksum_invalid)
+        {
+            DBG_LOGW("[DBG][COMPASS] JY901B checksum_invalid expected=0x%02X got=0x%02X\r\n",
+                     (unsigned int)jy_expected, (unsigned int)jy_received);
+        }
+        if (crc_invalid)
+        {
+            DBG_LOGW("[DBG][COMPASS] CRC_invalid expected=0x%04X got=0x%04X\r\n",
+                     (unsigned int)crc_expected, (unsigned int)crc_received);
+        }
+        if (raw_valid)
+        {
+            DBG_LOGI("[DBG][COMPASS] RX command=0x%02X payload_len=%u\r\n",
+                     (unsigned int)raw_cmd, (unsigned int)raw_payload_len);
+        }
+        raw_log_len = 0U;
+        crc_invalid = jy_checksum_invalid = raw_valid = false;
+#endif
         taskENTER_CRITICAL();
         if (!compass_is_ready() || bsp_uart_read(COMPASS_UART, &byte, 1) != 1)
         {
@@ -401,12 +479,18 @@ void compass_poll(void)
             if (s_rx[0] != 0x55) { drop_rx(1); continue; }
             if (s_rx_len < 11) break;
             len = 11;
-            DBG_RAW_HEX("COMPASS", s_rx, 11U);
+#if ENABLE_DEBUG_LOG
+            memcpy(raw_log, s_rx, 11U);
+            raw_log_len = 11U;
+#endif
             for (i = 0; i < 10; ++i) sum = (uint8_t)(sum + s_rx[i]);
             if (sum != s_rx[10])
             {
-                DBG_LOGW("[DBG][COMPASS] JY901B checksum_invalid expected=0x%02X got=0x%02X\r\n",
-                         (unsigned int)sum, (unsigned int)s_rx[10]);
+#if ENABLE_DEBUG_LOG
+                jy_checksum_invalid = true;
+                jy_expected = sum;
+                jy_received = s_rx[10];
+#endif
                 drop_rx(1);
                 continue;
             }
@@ -460,7 +544,10 @@ void compass_poll(void)
             }
             if (s_rx_len >= len)
             {
-                DBG_RAW_HEX("COMPASS", s_rx, len);
+#if ENABLE_DEBUG_LOG
+                memcpy(raw_log, s_rx, len);
+                raw_log_len = len;
+#endif
             }
             {
                 uint16_t expected_crc = crc16(s_rx, len - 2);
@@ -469,9 +556,10 @@ void compass_poll(void)
                 {
 #if ENABLE_DEBUG_LOG
                     s_rx_crc_errors++;
+                    crc_invalid = true;
+                    crc_expected = expected_crc;
+                    crc_received = received_crc;
 #endif
-                    DBG_LOGW("[DBG][COMPASS] CRC_invalid len=%u expected=0x%04X got=0x%04X\r\n",
-                             (unsigned int)len, (unsigned int)expected_crc, (unsigned int)received_crc);
                     drop_rx(1);
                     continue;
                 }
@@ -481,9 +569,10 @@ void compass_poll(void)
             {
 #if ENABLE_DEBUG_LOG
                 s_rx_frames_total++;
+                raw_cmd = s_rx[4];
+                raw_payload_len = len - 7U;
+                raw_valid = true;
 #endif
-                DBG_LOGI("[DBG][COMPASS] RX command=0x%02X payload_len=%u\r\n",
-                         (unsigned int)s_rx[4], (unsigned int)(len - 7U));
                 handle_packet(s_rx[4], s_rx + 5, len - 7);
             }
 #else

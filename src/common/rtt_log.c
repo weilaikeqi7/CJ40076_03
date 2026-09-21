@@ -16,7 +16,13 @@
 #include <stdio.h>
 #include <string.h>
 
-#define RTT_UP_BUF_SIZE 512U
+#if ENABLE_DEBUG_LOG
+#define RTT_UP_BUF_SIZE   4096U
+#define RTT_LINE_BUF_SIZE 256U
+#else
+#define RTT_UP_BUF_SIZE   128U
+#define RTT_LINE_BUF_SIZE 128U
+#endif
 
 typedef struct
 {
@@ -90,7 +96,7 @@ void rtt_write(const char* str)
 
 void rtt_printf(const char* fmt, ...)
 {
-    char    buf[128];
+    char    buf[RTT_LINE_BUF_SIZE];
     va_list args;
 
     va_start(args, fmt);
@@ -103,7 +109,7 @@ void rtt_printf(const char* fmt, ...)
 
 void rtt_raw_hex(const char* source, const uint8_t* data, size_t len)
 {
-    char   buf[128];
+    char   buf[RTT_LINE_BUF_SIZE];
     size_t used = 0U;
     size_t i;
     int    n;
@@ -134,7 +140,7 @@ void rtt_raw_hex(const char* source, const uint8_t* data, size_t len)
 
 void rtt_raw_line(const char* source, const char* line, size_t len)
 {
-    char   buf[128];
+    char   buf[RTT_LINE_BUF_SIZE];
     size_t copy_len;
     int    n;
 

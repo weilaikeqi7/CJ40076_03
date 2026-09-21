@@ -16,7 +16,7 @@
 #include "dev_display.h"
 #include "dev_gnss.h"
 #include "dev_ranger.h"
-#include "rtt_log.h"
+#include "debug_log.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -24,6 +24,10 @@
 static uint32_t s_batt_mv  = 4200U;
 static uint8_t  s_batt_lvl = 4U;
 static volatile bool s_shutting_down;
+#if ENABLE_DEBUG_LOG
+static uint8_t s_last_logged_lvl;
+static uint32_t s_last_logged_mv;
+#endif
 
 void app_power_init(void)
 {
@@ -84,6 +88,21 @@ void app_power_check(void)
         }
     }
     taskEXIT_CRITICAL();
+
+#if ENABLE_DEBUG_LOG
+    if (s_batt_lvl != s_last_logged_lvl ||
+        (mv > s_last_logged_mv ? mv - s_last_logged_mv : s_last_logged_mv - mv) >= 20U)
+    {
+        DBG_LOGI("[STATUS][POWER] batt_mv=%lumV batt_lvl=%u\r\n", (unsigned long)mv,
+                 (unsigned int)s_batt_lvl);
+        s_last_logged_lvl = s_batt_lvl;
+        s_last_logged_mv = mv;
+    }
+#endif
+    if (mv == 0U)
+    {
+        DBG_LOGW("[FAULT][POWER] battery_adc_invalid\r\n");
+    }
 
     /* 欠压保护：低于 3000mV 自动关机防过放 */
     if (mv < APP_BATT_LOW_OFF_MV)

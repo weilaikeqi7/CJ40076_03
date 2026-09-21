@@ -56,6 +56,9 @@ static bool gnss_on    = false;
 #define TASK_ALIVE_ALL       (TASK_ALIVE_BIT_KEY | TASK_ALIVE_BIT_SENS | TASK_ALIVE_BIT_DISP | TASK_ALIVE_BIT_PWR)
 
 static volatile uint32_t s_task_alive_bits = 0U;
+#if ENABLE_DEBUG_LOG
+static uint32_t s_last_missing_alive;
+#endif
 
 static void app_mark_alive(uint32_t bit)
 {
@@ -113,12 +116,18 @@ static void power_apply(void)
     {
         compass_power_ctl(need_compass);
         compass_on = need_compass;
+        DBG_LOGI("[STATE][POWER] compass=%u gnss=%u mode=%u calib=%u\r\n",
+                 compass_on ? 1U : 0U, gnss_on ? 1U : 0U, (unsigned int)cur_mode,
+                 calib_page_active() ? 1U : 0U);
     }
 
     if (need_gnss != gnss_on)
     {
         gnss_power_ctl(need_gnss);
         gnss_on = need_gnss;
+        DBG_LOGI("[STATE][POWER] compass=%u gnss=%u mode=%u calib=%u\r\n",
+                 compass_on ? 1U : 0U, gnss_on ? 1U : 0U, (unsigned int)cur_mode,
+                 calib_page_active() ? 1U : 0U);
     }
 }
 
@@ -198,6 +207,10 @@ static void on_measure_published(const measure_result_t* res)
 
 static void handle_key(const app_key_event_t* evt)
 {
+    DBG_LOGI("[EVENT][KEY] evt=0x%04X arg=%u power_down=%u mode_down=%u calib=%u\r\n",
+             (unsigned int)evt->evt, (unsigned int)evt->arg,
+             app_key_power_down() ? 1U : 0U, app_key_mode_down() ? 1U : 0U,
+             calib_page_active() ? 1U : 0U);
     /* 长按关机优先级最高（任何页面）：触发整机软关机下电流程 */
     if ((evt->evt & APP_KEY_EVT_POWER_LONG) != 0U)
     {
@@ -497,7 +510,13 @@ void app_task_power(void* argument)
         }
         else
         {
-            LOGW("sys: task alive check missing! bits=0x%02X\r\n", (unsigned int)alive_bits);
+#if ENABLE_DEBUG_LOG
+            if (alive_bits != s_last_missing_alive)
+            {
+                DBG_LOGW("[FAULT][TASK] alive_missing=0x%02X\r\n", (unsigned int)alive_bits);
+                s_last_missing_alive = alive_bits;
+            }
+#endif
             /* 任一任务卡死/阻塞/挂起时，故意停止喂狗，等待硬件看门狗在 2.5 秒后强行复位重启 */
         }
 
