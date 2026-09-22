@@ -33,6 +33,8 @@ static void bsp_pwr_pin_init(GPIO_Module* port, uint16_t pin)
     }
     else if (port == GPIOB)
     {
+        RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_AFIO, ENABLE);
+        GPIO_ConfigPinRemap(GPIO_RMP_SW_JTAG_SW_ENABLE, ENABLE);
         RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOB, ENABLE);
     }
 
