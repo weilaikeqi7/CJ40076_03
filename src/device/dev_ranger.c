@@ -82,7 +82,7 @@ static bool ranger_try_send(uint8_t cmd, const uint8_t* params, uint8_t param_le
     }
     frame[5 + param_len] = sum;
 
-    DBG_RAW_HEX("RANGER_TX", frame, (size_t)(6U + param_len));
+    RAW_RANGER_TX(frame, (size_t)(6U + param_len));
     bsp_uart_write(RANGER_UART, frame, (size_t)(6U + param_len));
     last_tx_tick = xTaskGetTickCount();
     tx_started = true;
@@ -132,7 +132,7 @@ static void ranger_handle_frame(uint8_t cmd, const uint8_t* params, uint8_t para
                 item.distance_m = (float)dist_int + (float)dist_frac / 10.0f;
             }
 
-            DBG_LOGI("[DATA][RANGER] cmd=0x%02X status=0x%02X target=%u valid=%u distance=%.1fm\r\n",
+            LOG_RANGER("[DATA][RANGER] cmd=0x%02X status=0x%02X target=%u valid=%u distance=%.1fm\r\n",
                  (unsigned int)cmd, (unsigned int)item.status, (unsigned int)item.target_no,
                  item.distance_m >= 0.0f ? 1U : 0U, item.distance_m);
 
@@ -191,7 +191,7 @@ static void ranger_debug_status(void)
     if (!first && (TickType_t)(now - last_tick) < pdMS_TO_TICKS(2000U)) return;
     first = false;
     last_tick = now;
-    DBG_LOGI("[STATUS][RANGER] power=%u alive=%u age_ms=%lu uart_rx=%u last_error=0x%02X\r\n",
+    LOG_RANGER("[STATUS][RANGER] power=%u alive=%u age_ms=%lu uart_rx=%u last_error=0x%02X\r\n",
              ranger_powered ? 1U : 0U, ranger_is_alive(3000U) ? 1U : 0U,
              (unsigned long)age_ms, (unsigned int)bsp_uart_available(RANGER_UART),
              (unsigned int)last_error);
@@ -254,14 +254,14 @@ void ranger_poll(void)
                     sum = (uint8_t)(sum + frame[i]);
                 }
 
-                DBG_RAW_HEX("RANGER", frame, total);
+                RAW_RANGER(frame, total);
                 if (sum == frame[total - 1U] && frame[3] == RANGER_DEV)
                 {
                     ranger_handle_frame(frame[4], &frame[5], (uint8_t)(frame[2] - 2U));
                 }
                 else
                 {
-                    DBG_LOGW("[DATA][RANGER] checksum_or_device_invalid\r\n");
+                    LOG_RANGER("[DATA][RANGER] checksum_or_device_invalid\r\n");
                 }
                 index = 0U;
             }
@@ -316,14 +316,14 @@ void ranger_init(void)
     last_tx_tick = 0U;
     rx_index = 0U;
     ranger_powered = true;
-    DBG_LOGI("[STATE][RANGER] power=1 baud=%u\r\n", (unsigned int)RANGER_BAUD);
+    LOG_RANGER("[STATE][RANGER] power=1 baud=%u\r\n", (unsigned int)RANGER_BAUD);
 }
 
 void ranger_power_ctl(bool on)
 {
     bsp_pwr_ranger(on);
     ranger_powered = on;
-    DBG_LOGI("[STATE][RANGER] power=%u\r\n", on ? 1U : 0U);
+    LOG_RANGER("[STATE][RANGER] power=%u\r\n", on ? 1U : 0U);
 }
 
 void ranger_deinit(void)
@@ -332,7 +332,7 @@ void ranger_deinit(void)
     vTaskDelay(pdMS_TO_TICKS(100U));
     bsp_pwr_ranger(false);
     ranger_powered = false;
-    DBG_LOGI("[STATE][RANGER] power=0\r\n");
+    LOG_RANGER("[STATE][RANGER] power=0\r\n");
 }
 
 void ranger_self_check(void)

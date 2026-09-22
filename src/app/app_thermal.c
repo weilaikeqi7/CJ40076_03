@@ -35,7 +35,7 @@ void app_thermal_init(void)
     s_last_duty    = 0U;
     s_cur_duty     = 0U;
     s_inited       = true;
-    DBG_LOGI("[STATE][THERM] heater=off reason=init\r\n");
+    LOG_THERM("[STATE][THERM] heater=off reason=init\r\n");
 }
 
 void app_thermal_off(void)
@@ -45,7 +45,7 @@ void app_thermal_off(void)
     s_prewarm_left = 0U;
     s_last_duty    = 0U;
     s_cur_duty     = 0U;
-    DBG_LOGI("[STATE][THERM] heater=off reason=power_off\r\n");
+    LOG_THERM("[STATE][THERM] heater=off reason=power_off\r\n");
 }
 
 void app_thermal_pause(void)
@@ -85,7 +85,7 @@ void app_thermal_step(uint32_t vbat_mv)
         s_prewarm_left = 0U;
         s_last_duty    = 0U;
         s_cur_duty     = 0U;
-        DBG_LOGW("[FAULT][THERM] temp_invalid vbat_mv=%lu duty_permille=0\r\n",
+        LOG_THERM("[FAULT][THERM] temp_invalid vbat_mv=%lu duty_permille=0\r\n",
                  (unsigned long)vbat_mv);
         return;
     }
@@ -104,7 +104,7 @@ void app_thermal_step(uint32_t vbat_mv)
     {
         s_cur_duty = 0U;
         dev_heater_off();
-        DBG_LOGW("[FAULT][THERM] low_battery_cut temp_c10=%d vbat_mv=%lu duty_permille=0\r\n",
+        LOG_THERM("[FAULT][THERM] low_battery_cut temp_c10=%d vbat_mv=%lu duty_permille=0\r\n",
                  (int)temp_c10, (unsigned long)vbat_mv);
         return;
     }
@@ -118,7 +118,7 @@ void app_thermal_step(uint32_t vbat_mv)
         reason = "laser_derate";
         s_cur_duty = duty;
         dev_heater_set_power(duty);
-        DBG_LOGI("[STATUS][THERM] temp_c10=%d vbat_mv=%lu duty_permille=%u state=%u reason=%s\r\n",
+        LOG_THERM("[STATUS][THERM] temp_c10=%d vbat_mv=%lu duty_permille=%u state=%u reason=%s\r\n",
                  (int)temp_c10, (unsigned long)vbat_mv, (unsigned int)duty, (unsigned int)state, reason);
         return;
     }
@@ -133,7 +133,7 @@ void app_thermal_step(uint32_t vbat_mv)
         s_prewarm_left--;
         s_cur_duty = duty;
         dev_heater_set_power(duty);
-        DBG_LOGI("[STATUS][THERM] temp_c10=%d vbat_mv=%lu duty_permille=%u state=%u reason=%s\r\n",
+        LOG_THERM("[STATUS][THERM] temp_c10=%d vbat_mv=%lu duty_permille=%u state=%u reason=%s\r\n",
                  (int)temp_c10, (unsigned long)vbat_mv, (unsigned int)duty, (unsigned int)state, reason);
         return;
     }
@@ -199,6 +199,6 @@ void app_thermal_step(uint32_t vbat_mv)
     s_last_duty = duty;
     s_cur_duty  = duty;
     dev_heater_set_power(duty);
-    DBG_LOGI("[STATUS][THERM] temp_c10=%d vbat_mv=%lu duty_permille=%u state=%u reason=%s\r\n",
+    LOG_THERM("[STATUS][THERM] temp_c10=%d vbat_mv=%lu duty_permille=%u state=%u reason=%s\r\n",
              (int)temp_c10, (unsigned long)vbat_mv, (unsigned int)duty, (unsigned int)state, reason);
 }

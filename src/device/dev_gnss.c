@@ -227,17 +227,17 @@ static void gnss_handle_rmc(char* line)
     /* 每行控制在 RTT 的 127 字节限制内；未定位时不把空字段转换值当作有效读数。 */
     if (!gnss_data.valid || fields[3][0] == '\0' || fields[5][0] == '\0')
     {
-        DBG_LOGI("[DATA][BEIDOU][RMC] valid=0 position_unavailable\r\n");
+        LOG_GNSS("[DATA][BEIDOU][RMC] valid=0 position_unavailable\r\n");
     }
     else
     {
-        DBG_LOGI("[DATA][BEIDOU][RMC] valid=1 lat=%.7f lon=%.7f\r\n",
+        LOG_GNSS("[DATA][BEIDOU][RMC] valid=1 lat=%.7f lon=%.7f\r\n",
                  gnss_data.latitude, gnss_data.longitude);
-        DBG_LOGI("[DATA][BEIDOU][RMC] utc=%02u:%02u:%02u date=20%02u-%02u-%02u\r\n",
+        LOG_GNSS("[DATA][BEIDOU][RMC] utc=%02u:%02u:%02u date=20%02u-%02u-%02u\r\n",
                  (unsigned int)gnss_data.utc_hour, (unsigned int)gnss_data.utc_min,
                  (unsigned int)gnss_data.utc_sec, (unsigned int)gnss_data.date_year,
                  (unsigned int)gnss_data.date_month, (unsigned int)gnss_data.date_day);
-        DBG_LOGI("[DATA][BEIDOU][RMC] speed_kn=%.3f speed_kmh=%.3f course=%.3f mode=%c\r\n",
+        LOG_GNSS("[DATA][BEIDOU][RMC] speed_kn=%.3f speed_kmh=%.3f course=%.3f mode=%c\r\n",
                  gnss_data.speed_knots, gnss_data.speed_kmh, gnss_data.course_deg,
                  gnss_data.pos_mode != '\0' ? gnss_data.pos_mode : '-');
     }
@@ -307,14 +307,14 @@ static void gnss_handle_gga(char* line, uint32_t generation)
 
     if (!has_position)
     {
-        DBG_LOGI("[DATA][BEIDOU][GGA] valid=0 fix=%u sats=%u hdop=%.2f position_unavailable\r\n",
+        LOG_GNSS("[DATA][BEIDOU][GGA] valid=0 fix=%u sats=%u hdop=%.2f position_unavailable\r\n",
                  (unsigned int)fix_quality, (unsigned int)sats_used, hdop);
     }
     else
     {
-        DBG_LOGI("[DATA][BEIDOU][GGA] valid=1 fix=%u sats=%u hdop=%.2f\r\n",
+        LOG_GNSS("[DATA][BEIDOU][GGA] valid=1 fix=%u sats=%u hdop=%.2f\r\n",
                  (unsigned int)fix_quality, (unsigned int)sats_used, hdop);
-        DBG_LOGI("[DATA][BEIDOU][GGA] lat=%.7f lon=%.7f alt=%.3fm\r\n",
+        LOG_GNSS("[DATA][BEIDOU][GGA] lat=%.7f lon=%.7f alt=%.3fm\r\n",
                  latitude, longitude, altitude_m);
     }
 }
@@ -324,11 +324,11 @@ static void gnss_handle_line(char* line, int len, uint32_t generation)
     bool powered;
 
     /* 原始行先打印，再做校验；校验失败的原始数据也能用于定位链路问题。 */
-    DBG_RAW_LINE("BEIDOU", line, (size_t)len);
+    RAW_GNSS(line, (size_t)len);
 
     if (!nmea_checksum_ok(line, len))
     {
-        DBG_LOGW("[DATA][BEIDOU] checksum_invalid\r\n");
+        LOG_GNSS("[DATA][BEIDOU] checksum_invalid\r\n");
         return;
     }
 
@@ -362,7 +362,7 @@ static void gnss_handle_line(char* line, int len, uint32_t generation)
  */
 static void gnss_send_cmd(const char* cmd)
 {
-    DBG_LOGI("[DBG][BEIDOU] TX %s", cmd);
+    LOG_GNSS("[DBG][BEIDOU] TX %s", cmd);
     bsp_uart_write(GNSS_UART, cmd, strlen(cmd));
 }
 
@@ -438,7 +438,7 @@ static void gnss_debug_status(bool powered, bool settling)
     taskENTER_CRITICAL();
     data = gnss_data;
     taskEXIT_CRITICAL();
-    DBG_LOGI("[STATUS][BEIDOU] power=%u settling=%u rx=%u fix=%u sats=%u age_gga_ms=%lu lat=%.7f lon=%.7f alt=%.2fm\r\n",
+    LOG_GNSS("[STATUS][BEIDOU] power=%u settling=%u rx=%u fix=%u sats=%u age_gga_ms=%lu lat=%.7f lon=%.7f alt=%.2fm\r\n",
              powered ? 1U : 0U, settling ? 1U : 0U,
              (unsigned int)bsp_uart_available(GNSS_UART), (unsigned int)data.fix_quality,
              (unsigned int)data.sats_used,

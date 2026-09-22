@@ -100,7 +100,7 @@ void app_power_check(void)
     if (s_batt_lvl != s_last_logged_lvl ||
         (mv > s_last_logged_mv ? mv - s_last_logged_mv : s_last_logged_mv - mv) >= 20U)
     {
-        DBG_LOGI("[STATUS][POWER] batt_mv=%lumV batt_lvl=%u\r\n", (unsigned long)mv,
+        LOG_POWER("[STATUS][POWER] batt_mv=%lumV batt_lvl=%u\r\n", (unsigned long)mv,
                  (unsigned int)s_batt_lvl);
         s_last_logged_lvl = s_batt_lvl;
         s_last_logged_mv = mv;
@@ -108,13 +108,13 @@ void app_power_check(void)
 #endif
     if (mv == 0U)
     {
-        DBG_LOGW("[FAULT][POWER] battery_adc_invalid\r\n");
+        LOG_POWER("[FAULT][POWER] battery_adc_invalid\r\n");
     }
 
     /* 欠压保护：低于 3000mV 自动关机防过放 */
     if (mv < APP_BATT_LOW_OFF_MV)
     {
-        LOGI("sys: low battery %lumV, power off\r\n", (unsigned long)mv);
+        LOG_POWER("sys: low battery %lumV, power off\r\n", (unsigned long)mv);
         app_power_shutdown();
     }
 }
@@ -146,10 +146,10 @@ void app_power_shutdown(void)
     /* 磁场校准中关机视为放弃本轮，不发送结束或保存命令。 */
     if (calib_mag_in_progress())
     {
-        LOGI("calib: mag calibration aborted by power off\r\n");
+        LOG_CALIB("calib: mag calibration aborted by power off\r\n");
     }
 
-    LOGI("sys: power off, save count=%lu\r\n", (unsigned long)store_get_count());
+    LOG_POWER("sys: power off, save count=%lu\r\n", (unsigned long)store_get_count());
     (void)store_save_count(); /* 正常关机与欠压关机均保存计数 */
 
     lcd_power_off();            /* 先 DISP=0 再断屏电 */

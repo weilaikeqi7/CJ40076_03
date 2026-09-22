@@ -109,14 +109,16 @@ static const command_step_t s_mag_save[] = {
 #define s_mag_end_seq   s_mag_stop
 #else
 /* MCG505 开始校准：直接发 0x0F 平面手动校准，保持广播输出（校准过程角度输出默认 True） */
-static const command_step_t s_mag_start_seq[] = {
+static const command_step_t s_mag_start[] = {
     {{0xAA, 0x55, 8, 0, 0x0F, 3, 0xF4, 0xD1}, 8, 0},
 };
 
 /* MCG505 结束校准：仅发送停止命令，不额外恢复广播（模块保持校准前状态） */
-static const command_step_t s_mag_end_seq[] = {
+static const command_step_t s_mag_stop[] = {
     {{0xAA, 0x55, 7, 0, 0x10, 0x32, 0x15}, 7, 0},
 };
+#define s_mag_start_seq s_mag_start
+#define s_mag_end_seq   s_mag_stop
 
 /* 采集采样点：0x11，CRC=2234 */
 static const command_step_t s_mag_sample[] = {
@@ -237,7 +239,7 @@ void compass_step(void)
     taskEXIT_CRITICAL();
     /* 仅暂停任务切换，串口发送期间保持中断开启，避免丢失 GNSS 接收字节。
      * 供电与命令接口仅供任务调用，因此关机不会插入此段固定长度发送。 */
-    DBG_RAW_HEX("COMPASS_TX", step->bytes, step->len);
+    RAW_COMPASS_TX(step->bytes, step->len);
     bsp_uart_write(COMPASS_UART, step->bytes, step->len);
     s_sent_tick = xTaskGetTickCount();
     s_wait_ticks = pdMS_TO_TICKS(step->wait_ms);
@@ -276,7 +278,7 @@ void compass_power_ctl(bool on)
     bsp_pwr_compass(on);
     bsp_uart_flush_rx(COMPASS_UART);
     taskEXIT_CRITICAL();
-    DBG_LOGI("[DBG][COMPASS] power=%u uart=%u settle_ms=%u\r\n", on ? 1U : 0U,
+    LOG_COMPASS("[DBG][COMPASS] power=%u uart=%u settle_ms=%u\r\n", on ? 1U : 0U,
              (unsigned int)(COMPASS_MODEL == COMPASS_MODEL_JY901B ? 9600U : 115200U),
              on ? 500U : 0U);
 }
@@ -419,14 +421,14 @@ static void compass_debug_status(void)
         const char* reason = !powered ? "powered_off" : settling ? "settling" :
                              data.tick_angle == 0U ? "no_frame" :
                              age_ms >= 500U ? "stale" : "valid";
-        DBG_LOGI("[STATUS][COMPASS] valid=%u reason=%s age_ms=%lu power=%u settle=%u busy=%u uart_rx=%u bytes=%lu frames=%lu crc_err=%lu\r\n",
+        LOG_COMPASS("[STATUS][COMPASS] valid=%u reason=%s age_ms=%lu power=%u settle=%u busy=%u uart_rx=%u bytes=%lu frames=%lu crc_err=%lu\r\n",
                  valid ? 1U : 0U, reason, (unsigned long)age_ms, powered ? 1U : 0U,
                  settling ? 1U : 0U, compass_is_busy() ? 1U : 0U,
                  (unsigned int)bsp_uart_available(COMPASS_UART), (unsigned long)s_rx_bytes_total,
                  (unsigned long)s_rx_frames_total, (unsigned long)s_rx_crc_errors);
         if (valid)
         {
-            DBG_LOGI("[DATA][COMPASS] heading=%.3f pitch=%.3f roll=%.3f\r\n",
+            LOG_COMPASS("[DATA][COMPASS] heading=%.3f pitch=%.3f roll=%.3f\r\n",
                      data.heading, data.pitch, data.roll);
         }
     }
@@ -455,21 +457,21 @@ void compass_poll(void)
         /* 上一字节解析出的日志事件，在本轮进入临界区前输出。 */
         if (raw_log_len != 0U)
         {
-            DBG_RAW_HEX("COMPASS", raw_log, raw_log_len);
+            RAW_COMPASS(raw_log, raw_log_len);
         }
         if (jy_checksum_invalid)
         {
-            DBG_LOGW("[DBG][COMPASS] JY901B checksum_invalid expected=0x%02X got=0x%02X\r\n",
+            LOG_COMPASS("[DBG][COMPASS] JY901B checksum_invalid expected=0x%02X got=0x%02X\r\n",
                      (unsigned int)jy_expected, (unsigned int)jy_received);
         }
         if (crc_invalid)
         {
-            DBG_LOGW("[DBG][COMPASS] CRC_invalid expected=0x%04X got=0x%04X\r\n",
+            LOG_COMPASS("[DBG][COMPASS] CRC_invalid expected=0x%04X got=0x%04X\r\n",
                      (unsigned int)crc_expected, (unsigned int)crc_received);
         }
         if (raw_valid)
         {
-            DBG_LOGI("[DBG][COMPASS] RX command=0x%02X payload_len=%u\r\n",
+            LOG_COMPASS("[DBG][COMPASS] RX command=0x%02X payload_len=%u\r\n",
                      (unsigned int)raw_cmd, (unsigned int)raw_payload_len);
         }
         raw_log_len = 0U;
@@ -635,24 +637,30 @@ bool compass_is_alive(uint32_t timeout_ms)
 bool compass_self_check(uint32_t timeout_ms)
 {
     TickType_t start = xTaskGetTickCount();
-    DBG_LOGI("[DBG][COMPASS] self_check_begin timeout_ms=%u uart_available=%u rx_bytes=%lu rx_frames=%lu crc_errors=%lu\r\n",
+#if ENABLE_DEBUG_LOG
+    LOG_COMPASS("[DBG][COMPASS] self_check_begin timeout_ms=%u uart_available=%u rx_bytes=%lu rx_frames=%lu crc_errors=%lu\r\n",
              (unsigned int)timeout_ms, (unsigned int)bsp_uart_available(COMPASS_UART),
              (unsigned long)s_rx_bytes_total, (unsigned long)s_rx_frames_total,
              (unsigned long)s_rx_crc_errors);
+#endif
     while ((TickType_t)(xTaskGetTickCount() - start) < pdMS_TO_TICKS(timeout_ms))
     {
         compass_poll();
         if (compass_is_alive(timeout_ms))
         {
-            DBG_LOGI("[DBG][COMPASS] self_check_frame_received\r\n");
+#if ENABLE_DEBUG_LOG
+            LOG_COMPASS("[DBG][COMPASS] self_check_frame_received\r\n");
+#endif
             return true;
         }
         vTaskDelay(pdMS_TO_TICKS(20U));
     }
-    DBG_LOGW("[DBG][COMPASS] self_check_timeout uart_available=%u rx_bytes=%lu rx_frames=%lu crc_errors=%lu\r\n",
+#if ENABLE_DEBUG_LOG
+    LOG_COMPASS("[DBG][COMPASS] self_check_timeout uart_available=%u rx_bytes=%lu rx_frames=%lu crc_errors=%lu\r\n",
              (unsigned int)bsp_uart_available(COMPASS_UART),
              (unsigned long)s_rx_bytes_total, (unsigned long)s_rx_frames_total,
              (unsigned long)s_rx_crc_errors);
+#endif
     return false;
 }
 

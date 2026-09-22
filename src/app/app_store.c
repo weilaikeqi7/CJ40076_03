@@ -6,7 +6,7 @@
 
 #include "app_config.h"
 #include "dev_storage.h"
-#include "rtt_log.h"
+#include "debug_log.h"
 
 #include <string.h>
 
@@ -88,22 +88,22 @@ void store_init(void)
         else
         {
             /* 旧记录没有型号标记，型号不匹配时保留计数并恢复当前型号默认补偿。 */
-            LOGI("store: compass model changed/unknown; offsets reset, count retained\r\n");
+            LOG_STORE("store: compass model changed/unknown; offsets reset, count retained\r\n");
             if (!store_commit())
             {
-                LOGI("store: failed to persist model defaults\r\n");
+                LOG_STORE("store: failed to persist model defaults\r\n");
             }
         }
-        LOGI("store: loaded count=%u pit=%d hit=%d her=%d\r\n", (unsigned int)cache_count,
+        LOG_STORE("store: loaded count=%u pit=%d hit=%d her=%d\r\n", (unsigned int)cache_count,
              (int)cache_offsets.pit_c01, (int)cache_offsets.hit_c01, (int)cache_offsets.her_c01);
     }
     else
     {
         store_defaults();
-        LOGI("store: invalid record, defaults loaded\r\n");
+        LOG_STORE("store: invalid record, defaults loaded\r\n");
         if (!store_commit())
         {
-            LOGI("store: failed to init flash\r\n");
+            LOG_STORE("store: failed to init flash\r\n");
         }
     }
 }
@@ -122,7 +122,7 @@ bool store_save_count(void)
 {
     if (!store_commit())
     {
-        LOGI("store: failed to save measure count\r\n");
+        LOG_STORE("store: failed to save measure count\r\n");
         return false;
     }
     return true;
@@ -138,10 +138,10 @@ bool store_save_offsets(const app_offsets_t* offsets)
     cache_offsets = *offsets;
     if (!store_commit())
     {
-        LOGI("store: failed to save angle offsets\r\n");
+        LOG_STORE("store: failed to save angle offsets\r\n");
         return false;
     }
-    LOGI("store: offsets saved pit=%d hit=%d her=%d\r\n", (int)offsets->pit_c01,
+    LOG_STORE("store: offsets saved pit=%d hit=%d her=%d\r\n", (int)offsets->pit_c01,
          (int)offsets->hit_c01, (int)offsets->her_c01);
     return true;
 }
