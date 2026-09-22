@@ -60,6 +60,9 @@ static const command_step_t s_mag_start[] = {
 static const command_step_t s_mag_end[] = {
     JY_CMD(0x69, 0x88, 0xB5, 200), JY_CMD(1, 0, 0, 100), JY_CMD(0, 0, 0, 100),
 };
+/* JY901B 不需要序列封装，直接用单帧 */
+#define s_mag_start_seq s_mag_start
+#define s_mag_end_seq   s_mag_end
 #else
 #if COMPASS_MODEL == COMPASS_MODEL_MCP406
 static const command_step_t s_setup[] = {
@@ -74,13 +77,17 @@ static const command_step_t s_reset[] = {
 };
 #else
 static const command_step_t s_setup[] = {
-    {{0xAA, 0x55, 9, 0, 7, 3, 0x03, 0xF4, 0xF5}, 9, 50},
-    {{0xAA, 0x55, 11, 0, 3, 3, 1, 2, 3, 0x11, 0x3D}, 11, 50},
-    {{0xAA, 0x55, 7, 0, 0x0D, 0xE2, 0x48}, 7, 50},
+    /* 设置输出内容=角度帧(参数3=3)，CRC=4D08 */
+    {{0xAA, 0x55, 9, 0, 7, 3, 0x03, 0x4D, 0x08}, 9, 50},
+    /* 设置数据组成：方位/俯仰/横滚(ID 1/2/3)，CRC=2B1C */
+    {{0xAA, 0x55, 11, 0, 3, 3, 1, 2, 3, 0x2B, 0x1C}, 11, 50},
+    /* 开始广播(0x0D)，CRC=F189 */
+    {{0xAA, 0x55, 7, 0, 0x0D, 0xF1, 0x89}, 7, 50},
 };
 
 static const command_step_t s_reset[] = {
-    {{0xAA, 0x55, 7, 0, 0x14, 0x61, 0x50}, 7, 100},
+    /* 恢复出厂校准参数(0x14)，CRC=7291 */
+    {{0xAA, 0x55, 7, 0, 0x14, 0x72, 0x91}, 7, 100},
 };
 #endif
 
@@ -97,17 +104,23 @@ static const command_step_t s_mag_stop[] = {
 static const command_step_t s_mag_save[] = {
     {{0, 5, 9, 0x6E, 0xDC}, 5, 0},
 };
+/* MCP406 也用单帧，别名指向已有定义 */
+#define s_mag_start_seq s_mag_start
+#define s_mag_end_seq   s_mag_stop
 #else
-static const command_step_t s_mag_start[] = {
+/* MCG505 开始校准：直接发 0x0F 平面手动校准，保持广播输出（校准过程角度输出默认 True） */
+static const command_step_t s_mag_start_seq[] = {
     {{0xAA, 0x55, 8, 0, 0x0F, 3, 0xF4, 0xD1}, 8, 0},
 };
 
-static const command_step_t s_mag_sample[] = {
-    {{0xAA, 0x55, 7, 0, 0x11, 0x31, 0xF5}, 7, 0},
+/* MCG505 结束校准：仅发送停止命令，不额外恢复广播（模块保持校准前状态） */
+static const command_step_t s_mag_end_seq[] = {
+    {{0xAA, 0x55, 7, 0, 0x10, 0x32, 0x15}, 7, 0},
 };
 
-static const command_step_t s_mag_stop[] = {
-    {{0xAA, 0x55, 7, 0, 0x10, 0x21, 0xD4}, 7, 0},
+/* 采集采样点：0x11，CRC=2234 */
+static const command_step_t s_mag_sample[] = {
+    {{0xAA, 0x55, 7, 0, 0x11, 0x22, 0x34}, 7, 0},
 };
 #endif
 
@@ -671,7 +684,7 @@ void compass_calib_mag_start(void)
     taskEXIT_CRITICAL();
     if (powered && !compass_is_busy())
     {
-        start_sequence(s_mag_start, ARRAY_COUNT(s_mag_start), false);
+        start_sequence(s_mag_start_seq, ARRAY_COUNT(s_mag_start_seq), false);
     }
 }
 
@@ -720,9 +733,12 @@ void compass_calib_mag_end(void)
         start_sequence(s_mag_save, ARRAY_COUNT(s_mag_save), false);
     }
 #else
+    /* MCG505：已有有效评分说明模块已完成校准并返回 CalScore，直接退出，
+       不再发送停止命令（否则会把已完成的校准打断判失败）。
+       仅在无评分时（手动提前退出）发送停止命令。 */
     if (!cal.score_valid)
     {
-        start_sequence(s_mag_stop, ARRAY_COUNT(s_mag_stop), false);
+        start_sequence(s_mag_end_seq, ARRAY_COUNT(s_mag_end_seq), false);
     }
 #endif
 }

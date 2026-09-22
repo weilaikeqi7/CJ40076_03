@@ -79,8 +79,10 @@ static void page_adjust(int16_t delta_c01)
 
 bool calib_handle_key(const app_key_event_t* evt)
 {
-    /* 关机由应用层优先处理；此处只消费校准相关按键。 */
-    if (pending != CMD_NONE || hardware_busy() || compass_is_busy()) return true;
+    /* 关机由应用层优先处理；此处只消费校准相关按键。
+       入口多击（4~10击）即使在 setup 中也允许入队，由 calib_step 里重试机制等待 busy 结束。 */
+    if (pending != CMD_NONE || hardware_busy()) return true;
+    if (state != CALIB_NONE && compass_is_busy()) return true;
 
     if (state == CALIB_NONE)
     {
@@ -189,6 +191,13 @@ void calib_step(void)
     switch (command)
     {
     case CMD_MAG_START:
+        /* 若罗盘还在发 setup 序列（busy），保留请求等下一拍重试，避免启动命令被静默丢弃 */
+        if (compass_is_busy())
+        {
+            pending = CMD_MAG_START;
+            LOGI("calib: %s busy, retry mag start\r\n", compass_model_name());
+            break;
+        }
         compass_calib_mag_start();
         LOGI("calib: %s magnetic calibration started\r\n", compass_model_name());
         break;
@@ -202,6 +211,12 @@ void calib_step(void)
         }
         break;
     case CMD_MAG_SAMPLE:
+        /* 罗盘忙时保留采样请求，等下一拍重试，防止按键采样被静默丢弃 */
+        if (compass_is_busy())
+        {
+            pending = CMD_MAG_SAMPLE;
+            break;
+        }
         compass_get_cal_state_snapshot(&cal);
         if (!cal.score_valid) compass_calib_take_sample();
         break;
