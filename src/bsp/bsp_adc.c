@@ -4,6 +4,7 @@
  */
 #include "bsp_adc.h"
 
+#include "debug_log.h"
 #include "n32g4fr.h"
 
 #include <math.h>
@@ -131,11 +132,14 @@ uint32_t bsp_battery_mv(void)
 
     if (raw == BSP_ADC_INVALID)
     {
+        DBG_LOGW("[FAULT][ADC] batt_raw_invalid\r\n");
         return 0U; /* 交由现有欠压关机和加热保护逻辑安全停机。 */
     }
 
     /* VBAT = raw * Vref / 4096 * (R9 + R13) / R13 = raw * 3300 / 4096 * 30 / 20 = raw * 3300 * 1.5 / 4096 */
-    return raw * BSP_ADC_VREF_MV * BSP_VBAT_DIVIDER_NUM / (BSP_ADC_FULL * BSP_VBAT_DIVIDER_DEN);
+    uint32_t batt_mv = raw * BSP_ADC_VREF_MV * BSP_VBAT_DIVIDER_NUM / (BSP_ADC_FULL * BSP_VBAT_DIVIDER_DEN);
+    DBG_LOGI("[DATA][ADC] batt_raw=%u batt_mv=%lu\r\n", (unsigned int)raw, (unsigned long)batt_mv);
+    return batt_mv;
 }
 
 float bsp_ntc_ohm(void)
@@ -147,18 +151,27 @@ float bsp_ntc_ohm(void)
         return -1.0f; /* 采样失败沿温度无效路径关闭加热。 */
     }
 
-    /* 阈值设为 4085（低于 -55℃ 才判开路，避免 -40℃ 下 3997 读数被误判） */
+    /*
+     * 电路：VCC_3V3 → R72(NTC) → PA1 → R73(10K) → GND
+     * raw/4096 = R73 / (Rntc + R73)  =>  Rntc = R73 * (4096 - raw) / raw
+     * NTC 开路：上臂断开，R73 把 PA1 拉到地，raw ≈ 0
+     * NTC 短路：上臂直通 3.3V，raw ≈ 4095
+     */
     if (raw >= 4085U)
     {
-        return -1.0f; /* 标记 NTC 开路 */
+        return -2.0f; /* NTC 短路（raw 接近满量程） */
     }
     if (raw <= 10U)
     {
-        return -2.0f; /* 标记 NTC 对地短路 */
+        return -1.0f; /* NTC 开路（raw 接近 0） */
     }
 
-    /* Rntc = R10 * raw / (4096 - raw) */
-    return BSP_NTC_PULLUP_OHM * (float)raw / (float)(BSP_ADC_FULL - raw);
+    /* Rntc = R73 * (4096 - raw) / raw */
+    {
+        float ntc = BSP_NTC_PULLUP_OHM * (float)(BSP_ADC_FULL - raw) / (float)raw;
+        DBG_LOGI("[DATA][ADC] ntc_raw=%u ntc_ohm=%ld\r\n", (unsigned int)raw, (long)ntc);
+        return ntc;
+    }
 }
 
 int16_t bsp_ntc_temperature_c10(void)

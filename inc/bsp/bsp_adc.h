@@ -19,9 +19,9 @@ extern "C" {
 
 /* ADC 通道与引脚定义（PA0=电池分压，PA1=NTC） */
 #define BSP_VBAT_ADC_PIN GPIO_PIN_0
-#define BSP_VBAT_ADC_CH  ADC_CH_0
+#define BSP_VBAT_ADC_CH  ADC_CH_1
 #define BSP_NTC_ADC_PIN  GPIO_PIN_1
-#define BSP_NTC_ADC_CH   ADC_CH_1
+#define BSP_NTC_ADC_CH   ADC_CH_2
 
 /** 电池分压比：R9=10K 上臂，R13=20K 下臂（电源页 电池电压检测电路），VBAT = Vadc * 30/20 = 1.5 */
 #define BSP_VBAT_DIVIDER_NUM 30U
@@ -31,8 +31,9 @@ extern "C" {
 #define BSP_ADC_VREF_MV 3300U
 #define BSP_ADC_FULL    4096U
 
-/** NTC 电路上臂电阻（R10 = 10K 接 3V3，NTC 下臂接地） */
-#define BSP_NTC_PULLUP_OHM 10000.0f
+/** NTC 电路：R72=NTC 热敏电阻在上臂（接 3V3），R73=10K 固定电阻下臂接地。
+ *  温度升高 NTC 阻值下降，分压点电压升高，raw 增大。 */
+#define BSP_NTC_PULLUP_OHM 10000.0f  /* R73 固定下臂阻值 */
 
 /** NTC 参数（B 值法，默认 10K@25℃ B=3950，请按实际 NTC 型号修改） */
 #define BSP_NTC_R25_OHM 10000.0f
