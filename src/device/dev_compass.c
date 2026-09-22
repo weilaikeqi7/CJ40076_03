@@ -98,7 +98,7 @@ static const command_step_t s_mag_save[] = {
 };
 #else
 static const command_step_t s_mag_start[] = {
-    {{0xAA, 0x55, 8, 0, 0x0F, 1, 0xD4, 0x93}, 8, 0},
+    {{0xAA, 0x55, 8, 0, 0x0F, 2, 0xD4, 0x93}, 8, 0},
 };
 static const command_step_t s_mag_sample[] = {
     {{0xAA, 0x55, 7, 0, 0x11, 0x22, 0x34}, 7, 0},

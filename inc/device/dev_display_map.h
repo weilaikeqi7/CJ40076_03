@@ -60,9 +60,9 @@ enum
     LCD_SYM_AFTER_M2   = 13, /* S13 第二行 M 右侧标记 */
     LCD_SYM_DOT_TOP    = 14, /* S14 顶行小数点 */
     LCD_SYM_BATTERY    = 15, /* S15 电池框 */
-    LCD_SYM_BAT_BAR3   = 16, /* S16 电池电量格（右） */
+    LCD_SYM_BAT_BAR2   = 16, /* S16 电池电量格（中） */
     LCD_SYM_BAT_BAR1   = 17, /* S17 电池电量格（左） */
-    LCD_SYM_BAT_BAR2   = 18, /* S18 电池电量格（中） */
+    LCD_SYM_BAT_BAR3   = 18, /* S18 电池电量格（右） */
     LCD_SYM_DEG_TOP    = 19, /* S19 顶行 ° */
     LCD_SYM_ROSE_E2    = 20, /* S20 顶部罗盘字母 E（右） */
     LCD_SYM_ROSE_N     = 21, /* S21 顶部罗盘字母 N */
