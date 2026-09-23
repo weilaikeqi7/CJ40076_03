@@ -41,7 +41,7 @@
 #define DBG_MOD_THERM   1   /* 加热温控：温度/电压/占空比/状态 */
 #endif
 #ifndef DBG_MOD_HEATER
-#define DBG_MOD_HEATER  0   /* 加热 PWM 设备层（频率高，默认关） */
+#define DBG_MOD_HEATER  1   /* 加热 PWM 设备层（频率高，默认关） */
 #endif
 #ifndef DBG_MOD_ADC
 #define DBG_MOD_ADC     1   /* ADC 原始采样值 */

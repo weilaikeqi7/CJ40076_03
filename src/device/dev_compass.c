@@ -110,7 +110,7 @@ static const command_step_t s_mag_save[] = {
 #else
 /* MCG505 开始校准：直接发 0x0F 平面手动校准，保持广播输出（校准过程角度输出默认 True） */
 static const command_step_t s_mag_start[] = {
-    {{0xAA, 0x55, 8, 0, 0x0F, 3, 0xF4, 0xD1}, 8, 0},
+    {{0xAA, 0x55, 8, 0, 0x0F, 1, 0xD4, 0x93}, 8, 0},
 };
 
 /* MCG505 结束校准：仅发送停止命令，不额外恢复广播（模块保持校准前状态） */
@@ -377,7 +377,11 @@ static void handle_packet(uint8_t command, const uint8_t* payload, size_t len)
     }
     else if (command == score_cmd && len >= 4)
     {
+#if COMPASS_MODEL == COMPASS_MODEL_MCG505
+        float value = float_le(payload);
+#else
         float value = float_be(payload);
+#endif
         taskENTER_CRITICAL();
         s_cal.cal_score = value;
         s_cal.score_valid = isfinite(value);
@@ -686,7 +690,7 @@ void compass_calib_mag_start(void)
     bool powered;
     taskENTER_CRITICAL();
     powered = s_powered;
-    s_cal.sample_count = compass_mag_uses_samples() ? 1U : 0U;
+    s_cal.sample_count = 0U;
     s_cal.cal_score = -1.0f;
     s_cal.score_valid = false;
     taskEXIT_CRITICAL();
