@@ -8,7 +8,6 @@
 #include "app_calib.h"
 #include "app_config.h"
 #include "app_display.h"
-#include "debug_log.h"
 #include "app_key.h"
 #include "app_measure.h"
 #include "app_power.h"
@@ -20,7 +19,6 @@
 #include "dev_display.h"
 #include "dev_gnss.h"
 #include "dev_ranger.h"
-#include "debug_log.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -56,9 +54,6 @@ static bool gnss_on    = false;
 #define TASK_ALIVE_ALL       (TASK_ALIVE_BIT_KEY | TASK_ALIVE_BIT_SENS | TASK_ALIVE_BIT_DISP | TASK_ALIVE_BIT_PWR)
 
 static volatile uint32_t s_task_alive_bits = 0U;
-#if ENABLE_DEBUG_LOG
-static uint32_t s_last_missing_alive;
-#endif
 
 static void app_mark_alive(uint32_t bit)
 {
@@ -116,18 +111,12 @@ static void power_apply(void)
     {
         compass_power_ctl(need_compass);
         compass_on = need_compass;
-        LOG_POWER("[STATE][POWER] compass=%u gnss=%u mode=%u calib=%u\r\n",
-                 compass_on ? 1U : 0U, gnss_on ? 1U : 0U, (unsigned int)cur_mode,
-                 calib_page_active() ? 1U : 0U);
     }
 
     if (need_gnss != gnss_on)
     {
         gnss_power_ctl(need_gnss);
         gnss_on = need_gnss;
-        LOG_POWER("[STATE][POWER] compass=%u gnss=%u mode=%u calib=%u\r\n",
-                 compass_on ? 1U : 0U, gnss_on ? 1U : 0U, (unsigned int)cur_mode,
-                 calib_page_active() ? 1U : 0U);
     }
 }
 
@@ -149,7 +138,6 @@ static void mode_switch_next(void)
     measure_set_mode(cur_mode);
     target_published = false;
     power_apply();
-    LOG_MEASURE("app: mode -> %d\r\n", (int)cur_mode);
 }
 
 static void on_measure_published(const measure_result_t* res)
@@ -200,17 +188,11 @@ static void on_measure_published(const measure_result_t* res)
         }
         taskEXIT_CRITICAL();
 
-        LOG_MEASURE("app: multi published, near_valid=%d target_valid=%d (snapshot_att=%d)\r\n", (int)res->near_valid,
-             (int)target_near.valid, (int)res->attitude_valid);
     }
 }
 
 static void handle_key(const app_key_event_t* evt)
 {
-    LOG_KEY("[EVENT][KEY] evt=0x%04X arg=%u power_down=%u mode_down=%u calib=%u\r\n",
-             (unsigned int)evt->evt, (unsigned int)evt->arg,
-             app_key_power_down() ? 1U : 0U, app_key_mode_down() ? 1U : 0U,
-             calib_page_active() ? 1U : 0U);
     /* 长按关机优先级最高（任何页面）：触发整机软关机下电流程 */
     if ((evt->evt & APP_KEY_EVT_POWER_LONG) != 0U)
     {
@@ -253,7 +235,6 @@ static void handle_key(const app_key_event_t* evt)
             store_set_count_ram(0U);
             if (store_save_count())
             {
-                LOG_MEASURE("app: count cleared and saved\r\n");
             }
         }
     }
@@ -269,21 +250,14 @@ static void startup_self_check(void)
 
     if (compass_self_check(3000U))
     {
-        LOG_SYS("sys: %s angle frame self-check OK\r\n", compass_model_name());
-        LOG_COMPASS("[DBG][COMPASS] self_check=PASS\r\n");
     }
     else
     {
-        LOG_SYS("sys: %s self-check FAILED (no angle frame)\r\n", compass_model_name());
-        LOG_COMPASS("[DBG][COMPASS] self_check=FAIL ready=%u alive=%u\r\n",
-                 compass_is_ready() ? 1U : 0U, compass_is_alive(3000U) ? 1U : 0U);
     }
 }
 
 void app_system_init(void)
 {
-    rtt_log_init();
-    LOG_SYS("sys: CJ40076 System Boot\r\n");
 
     bsp_adc_init();
     store_init();
@@ -303,7 +277,6 @@ void app_system_init(void)
 
     /* 启动硬件独立看门狗，进入全系统协同监控保活模式 */
     bsp_iwdg_init(APP_IWDG_TIMEOUT_MS);
-    LOG_SYS("sys: IWDG started (%ums timeout)\r\n", (unsigned int)APP_IWDG_TIMEOUT_MS);
 }
 
 /* ========================================================================== */
@@ -316,7 +289,6 @@ void app_system_init(void)
 void app_task_key(void* argument)
 {
     (void)argument;
-    LOG_SYS("task: T_KEY started (Prio 4)\r\n");
 
     while (1)
     {
@@ -351,7 +323,6 @@ void app_task_key(void* argument)
 void app_task_sensor(void* argument)
 {
     (void)argument;
-    LOG_SYS("task: T_SENS started (Prio 3)\r\n");
 
     while (1)
     {
@@ -404,7 +375,6 @@ void app_task_display(void* argument)
     uint32_t     heater_ms = 0U;
     disp_state_t disp;
     measure_result_t display_result;
-    LOG_SYS("task: T_DISP started (Prio 2)\r\n");
 
     while (1)
     {
@@ -495,7 +465,6 @@ void app_task_display(void* argument)
 void app_task_power(void* argument)
 {
     (void)argument;
-    LOG_SYS("task: T_PWR started (Prio 1)\r\n");
 
     while (1)
     {
@@ -510,13 +479,6 @@ void app_task_power(void* argument)
         }
         else
         {
-#if ENABLE_DEBUG_LOG
-            if (alive_bits != s_last_missing_alive)
-            {
-                LOG_SYS("[FAULT][TASK] alive_missing=0x%02X\r\n", (unsigned int)alive_bits);
-                s_last_missing_alive = alive_bits;
-            }
-#endif
             /* 任一任务卡死/阻塞/挂起时，故意停止喂狗，等待硬件看门狗在 2.5 秒后强行复位重启 */
         }
 

@@ -89,7 +89,7 @@
 #define APP_HEATER_TEMP_OFF_C10     150   /* 15.0℃ 停温切断 */
 #define APP_HEATER_TEMP_WARM_C10    0     /* 0.0℃ 保温门限 */
 #define APP_HEATER_TEMP_COLD_C10    (-50) /* -5.0℃ 极寒分界（屏幕工作下限 -10℃，留 5℃ 余量） */
-/** 温度滞环（0.1℃）：升档/降档均要求越过门限 ±0.5℃ 才切换，防止 NTC 抖动导致档位来回跳 */
+/** 温度滞环（0.1℃）：分界线 ±0.5℃ 内维持上一档，防止 NTC 抖动导致档位来回切 */
 #define APP_HEATER_TEMP_HYST_C10    5
 
 /** 各区间 PWM 占空比千分比 */

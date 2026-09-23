@@ -4,7 +4,6 @@
  */
 #include "bsp_adc.h"
 
-#include "debug_log.h"
 #include "n32g4fr.h"
 
 #include <math.h>
@@ -132,13 +131,11 @@ uint32_t bsp_battery_mv(void)
 
     if (raw == BSP_ADC_INVALID)
     {
-        LOG_ADC("[FAULT][ADC] batt_raw_invalid\r\n");
         return 0U; /* 交由现有欠压关机和加热保护逻辑安全停机。 */
     }
 
     /* VBAT = raw * Vref / 4096 * (R9 + R13) / R13 = raw * 3300 / 4096 * 30 / 20 = raw * 3300 * 1.5 / 4096 */
     uint32_t batt_mv = raw * BSP_ADC_VREF_MV * BSP_VBAT_DIVIDER_NUM / (BSP_ADC_FULL * BSP_VBAT_DIVIDER_DEN);
-    LOG_ADC("[DATA][ADC] batt_raw=%u batt_mv=%lu\r\n", (unsigned int)raw, (unsigned long)batt_mv);
     return batt_mv;
 }
 
@@ -169,7 +166,6 @@ float bsp_ntc_ohm(void)
     /* Rntc = R73 * (4096 - raw) / raw */
     {
         float ntc = BSP_NTC_PULLUP_OHM * (float)(BSP_ADC_FULL - raw) / (float)raw;
-        LOG_ADC("[DATA][ADC] ntc_raw=%u ntc_ohm=%ld\r\n", (unsigned int)raw, (long)ntc);
         return ntc;
     }
 }

@@ -112,7 +112,7 @@ static const expected_t setup[] = {
     {{0xAA, 0x55, 7, 0, 0x0D, 0xF1, 0x89}, 7, 50}
 };
 static const expected_t reset[] = { {{0xAA, 0x55, 7, 0, 0x14, 0x72, 0x91}, 7, 100} };
-static const expected_t mag_start[] = { {{0xAA, 0x55, 8, 0, 0x0F, 3, 0xF4, 0xD1}, 8, 0} };
+static const expected_t mag_start[] = { {{0xAA, 0x55, 8, 0, 0x0F, 1, 0xD4, 0x93}, 8, 0} };
 static const expected_t mag_end[] = { {{0xAA, 0x55, 7, 0, 0x10, 0x32, 0x15}, 7, 0} };
 static const expected_t sample[] = { {{0xAA, 0x55, 7, 0, 0x11, 0x22, 0x34}, 7, 0} };
 #endif
@@ -264,6 +264,13 @@ static void send_score(float score)
     uint8_t bytes[16], payload[4];
     size_t len;
     put_float(payload, score);
+#if COMPASS_MODEL == 3
+    /* MCG505 实机确认角度与评分均为小端 Float32 */
+    {
+        uint8_t tmp = payload[0]; payload[0] = payload[3]; payload[3] = tmp;
+        tmp = payload[1]; payload[1] = payload[2]; payload[2] = tmp;
+    }
+#endif
     len = packet(bytes, COMPASS_MODEL == 2 ? 0x12 : 0x13, payload, 4);
     feed(bytes, 2);
     feed(bytes + 2, len - 2);
@@ -457,7 +464,8 @@ static void test_mag(void)
     run_sequence(mag_start, COUNT(mag_start));
     CHECK(now >= start);
     CHECK(compass_mag_uses_samples() == (COMPASS_MODEL != 1));
-    CHECK(compass_get_cal_state()->sample_count == (COMPASS_MODEL == 1 ? 0U : 1U));
+    /* MCP406 自动采第一点预置 1；MCG505 实机确认不自动采样，预置 0 */
+    CHECK(compass_get_cal_state()->sample_count == (COMPASS_MODEL == 2 ? 1U : 0U));
     CHECK(!compass_get_cal_state()->score_valid);
     CHECK(compass_get_cal_state()->cal_score == -1);
     tx_count = 0;
@@ -492,8 +500,9 @@ static void test_mag(void)
 #endif
         float scores[] = {nextafterf(threshold, 0), threshold, nextafterf(threshold, INFINITY), 0, -0.1f, NAN, INFINITY};
         size_t i, len = packet(bytes, COMPASS_MODEL == 2 ? 0x11 : 0x12, count_payload, sizeof(count_payload));
+        /* MCP406 StartCal 自动采第一点（预置 1）；MCG505 不自动采（预置 0） */
         feed(bytes, len - 1);
-        CHECK(compass_get_cal_state()->sample_count == 1);
+        CHECK(compass_get_cal_state()->sample_count == (COMPASS_MODEL == 2 ? 1U : 0U));
         feed(bytes + len - 1, 1);
         CHECK(compass_get_cal_state()->sample_count == wanted);
         CHECK(compass_calib_score_valid(nextafterf(0, INFINITY)));

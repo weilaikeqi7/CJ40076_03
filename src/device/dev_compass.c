@@ -5,7 +5,6 @@
 #include "dev_compass.h"
 #include "bsp_power.h"
 #include "bsp_uart.h"
-#include "debug_log.h"
 #include "FreeRTOS.h"
 #include "task.h"
 
@@ -20,11 +19,6 @@ static compass_data_t s_data;
 static compass_cal_state_t s_cal;
 static uint8_t s_rx[RX_CAPACITY];
 static size_t s_rx_len;
-#if ENABLE_DEBUG_LOG
-static uint32_t s_rx_bytes_total;
-static uint32_t s_rx_frames_total;
-static uint32_t s_rx_crc_errors;
-#endif
 static volatile bool s_powered;
 static TickType_t s_ready_tick;
 static bool s_settling; /* 就绪后锁存，避免长期运行跨半个 Tick 周期被误判为未上电。 */
@@ -108,7 +102,7 @@ static const command_step_t s_mag_save[] = {
 #define s_mag_start_seq s_mag_start
 #define s_mag_end_seq   s_mag_stop
 #else
-/* MCG505 开始校准：直接发 0x0F 平面手动校准，保持广播输出（校准过程角度输出默认 True） */
+/* MCG505 开始校准：0x0F 参数1=磁场空间手动校准，保持广播输出（校准过程角度输出默认 True） */
 static const command_step_t s_mag_start[] = {
     {{0xAA, 0x55, 8, 0, 0x0F, 1, 0xD4, 0x93}, 8, 0},
 };
@@ -142,6 +136,9 @@ static uint16_t crc16(const uint8_t* data, size_t len)
     return crc;
 }
 
+#if COMPASS_MODEL != COMPASS_MODEL_JY901B
+#if COMPASS_MODEL != COMPASS_MODEL_MCG505
+/* MCP406 角度与评分均按手册大端；MCG505 实机确认全部小端，由 float_le 处理 */
 static float float_be(const uint8_t* data)
 {
     uint32_t bits = ((uint32_t)data[0] << 24) | ((uint32_t)data[1] << 16) |
@@ -150,6 +147,7 @@ static float float_be(const uint8_t* data)
     memcpy(&value, &bits, sizeof(value));
     return value;
 }
+#endif
 
 #if COMPASS_MODEL == COMPASS_MODEL_MCG505
 /** MCG505 实机角度数据为小端 Float32；校准评分仍按手册使用大端 Float32。 */
@@ -163,6 +161,7 @@ static float float_le(const uint8_t* data)
 }
 #endif
 #endif
+#endif  /* COMPASS_MODEL == COMPASS_MODEL_JY901B 外层分支结束 */
 
 #define ARRAY_COUNT(a) (sizeof(a) / sizeof((a)[0]))
 static const command_step_t* s_sequence;
@@ -239,7 +238,6 @@ void compass_step(void)
     taskEXIT_CRITICAL();
     /* 仅暂停任务切换，串口发送期间保持中断开启，避免丢失 GNSS 接收字节。
      * 供电与命令接口仅供任务调用，因此关机不会插入此段固定长度发送。 */
-    RAW_COMPASS_TX(step->bytes, step->len);
     bsp_uart_write(COMPASS_UART, step->bytes, step->len);
     s_sent_tick = xTaskGetTickCount();
     s_wait_ticks = pdMS_TO_TICKS(step->wait_ms);
@@ -278,9 +276,6 @@ void compass_power_ctl(bool on)
     bsp_pwr_compass(on);
     bsp_uart_flush_rx(COMPASS_UART);
     taskEXIT_CRITICAL();
-    LOG_COMPASS("[DBG][COMPASS] power=%u uart=%u settle_ms=%u\r\n", on ? 1U : 0U,
-             (unsigned int)(COMPASS_MODEL == COMPASS_MODEL_JY901B ? 9600U : 115200U),
-             on ? 500U : 0U);
 }
 
 void compass_init(void)
@@ -396,91 +391,11 @@ static void drop_rx(size_t count)
     s_rx_len -= count;
 }
 
-#if ENABLE_DEBUG_LOG
-static void compass_debug_status(void)
-{
-    static TickType_t last_tick;
-    static bool        first = true;
-    TickType_t         now = xTaskGetTickCount();
-    compass_data_t     data;
-    bool               powered;
-    bool               settling;
-
-    if (!first && (TickType_t)(now - last_tick) < pdMS_TO_TICKS(1000U)) return;
-    first = false;
-    last_tick = now;
-
-    taskENTER_CRITICAL();
-    powered = s_powered;
-    settling = s_settling;
-    data = s_data;
-    taskEXIT_CRITICAL();
-
-    {
-        uint32_t age_ms = data.tick_angle == 0U
-                              ? 0U
-                              : (uint32_t)(((uint64_t)(now - data.tick_angle) * 1000U) /
-                                           configTICK_RATE_HZ);
-        bool valid = powered && !settling && data.tick_angle != 0U && age_ms < 500U;
-        const char* reason = !powered ? "powered_off" : settling ? "settling" :
-                             data.tick_angle == 0U ? "no_frame" :
-                             age_ms >= 500U ? "stale" : "valid";
-        LOG_COMPASS("[STATUS][COMPASS] valid=%u reason=%s age_ms=%lu power=%u settle=%u busy=%u uart_rx=%u bytes=%lu frames=%lu crc_err=%lu\r\n",
-                 valid ? 1U : 0U, reason, (unsigned long)age_ms, powered ? 1U : 0U,
-                 settling ? 1U : 0U, compass_is_busy() ? 1U : 0U,
-                 (unsigned int)bsp_uart_available(COMPASS_UART), (unsigned long)s_rx_bytes_total,
-                 (unsigned long)s_rx_frames_total, (unsigned long)s_rx_crc_errors);
-        if (valid)
-        {
-            LOG_COMPASS("[DATA][COMPASS] heading=%.3f pitch=%.3f roll=%.3f\r\n",
-                     data.heading, data.pitch, data.roll);
-        }
-    }
-}
-#endif
-
 void compass_poll(void)
 {
     uint8_t byte;
-#if ENABLE_DEBUG_LOG
-    /* 原始帧/CRC/RX 日志统一在临界区外输出；临界区内仅复制待打印帧。 */
-    uint8_t  raw_log[RX_CAPACITY];
-    size_t   raw_log_len = 0U;
-    uint8_t  raw_cmd = 0U;
-    size_t   raw_payload_len = 0U;
-    bool     raw_valid = false;
-    bool     crc_invalid = false;
-    uint16_t crc_expected = 0U, crc_received = 0U;
-    bool     jy_checksum_invalid = false;
-    uint8_t  jy_expected = 0U, jy_received = 0U;
-    compass_debug_status();
-#endif
     for (;;)
     {
-#if ENABLE_DEBUG_LOG
-        /* 上一字节解析出的日志事件，在本轮进入临界区前输出。 */
-        if (raw_log_len != 0U)
-        {
-            RAW_COMPASS(raw_log, raw_log_len);
-        }
-        if (jy_checksum_invalid)
-        {
-            LOG_COMPASS("[DBG][COMPASS] JY901B checksum_invalid expected=0x%02X got=0x%02X\r\n",
-                     (unsigned int)jy_expected, (unsigned int)jy_received);
-        }
-        if (crc_invalid)
-        {
-            LOG_COMPASS("[DBG][COMPASS] CRC_invalid expected=0x%04X got=0x%04X\r\n",
-                     (unsigned int)crc_expected, (unsigned int)crc_received);
-        }
-        if (raw_valid)
-        {
-            LOG_COMPASS("[DBG][COMPASS] RX command=0x%02X payload_len=%u\r\n",
-                     (unsigned int)raw_cmd, (unsigned int)raw_payload_len);
-        }
-        raw_log_len = 0U;
-        crc_invalid = jy_checksum_invalid = raw_valid = false;
-#endif
         taskENTER_CRITICAL();
         if (!compass_is_ready() || bsp_uart_read(COMPASS_UART, &byte, 1) != 1)
         {
@@ -489,9 +404,6 @@ void compass_poll(void)
         }
         if (s_rx_len == sizeof(s_rx)) drop_rx(1);
         s_rx[s_rx_len++] = byte;
-#if ENABLE_DEBUG_LOG
-        s_rx_bytes_total++;
-#endif
         while (s_rx_len != 0)
         {
             size_t len;
@@ -501,18 +413,9 @@ void compass_poll(void)
             if (s_rx[0] != 0x55) { drop_rx(1); continue; }
             if (s_rx_len < 11) break;
             len = 11;
-#if ENABLE_DEBUG_LOG
-            memcpy(raw_log, s_rx, 11U);
-            raw_log_len = 11U;
-#endif
             for (i = 0; i < 10; ++i) sum = (uint8_t)(sum + s_rx[i]);
             if (sum != s_rx[10])
             {
-#if ENABLE_DEBUG_LOG
-                jy_checksum_invalid = true;
-                jy_expected = sum;
-                jy_received = s_rx[10];
-#endif
                 drop_rx(1);
                 continue;
             }
@@ -564,24 +467,12 @@ void compass_poll(void)
 #endif
                 break;
             }
-            if (s_rx_len >= len)
             {
-#if ENABLE_DEBUG_LOG
-                memcpy(raw_log, s_rx, len);
-                raw_log_len = len;
-#endif
-            }
-            {
+
                 uint16_t expected_crc = crc16(s_rx, len - 2);
                 uint16_t received_crc = (uint16_t)(((uint16_t)s_rx[len - 2] << 8) | s_rx[len - 1]);
                 if (expected_crc != received_crc)
                 {
-#if ENABLE_DEBUG_LOG
-                    s_rx_crc_errors++;
-                    crc_invalid = true;
-                    crc_expected = expected_crc;
-                    crc_received = received_crc;
-#endif
                     drop_rx(1);
                     continue;
                 }
@@ -589,12 +480,6 @@ void compass_poll(void)
 #if COMPASS_MODEL == COMPASS_MODEL_MCG505
             if (s_rx[3] == 0)
             {
-#if ENABLE_DEBUG_LOG
-                s_rx_frames_total++;
-                raw_cmd = s_rx[4];
-                raw_payload_len = len - 7U;
-                raw_valid = true;
-#endif
                 handle_packet(s_rx[4], s_rx + 5, len - 7);
             }
 #else
@@ -641,30 +526,15 @@ bool compass_is_alive(uint32_t timeout_ms)
 bool compass_self_check(uint32_t timeout_ms)
 {
     TickType_t start = xTaskGetTickCount();
-#if ENABLE_DEBUG_LOG
-    LOG_COMPASS("[DBG][COMPASS] self_check_begin timeout_ms=%u uart_available=%u rx_bytes=%lu rx_frames=%lu crc_errors=%lu\r\n",
-             (unsigned int)timeout_ms, (unsigned int)bsp_uart_available(COMPASS_UART),
-             (unsigned long)s_rx_bytes_total, (unsigned long)s_rx_frames_total,
-             (unsigned long)s_rx_crc_errors);
-#endif
     while ((TickType_t)(xTaskGetTickCount() - start) < pdMS_TO_TICKS(timeout_ms))
     {
         compass_poll();
         if (compass_is_alive(timeout_ms))
         {
-#if ENABLE_DEBUG_LOG
-            LOG_COMPASS("[DBG][COMPASS] self_check_frame_received\r\n");
-#endif
             return true;
         }
         vTaskDelay(pdMS_TO_TICKS(20U));
     }
-#if ENABLE_DEBUG_LOG
-    LOG_COMPASS("[DBG][COMPASS] self_check_timeout uart_available=%u rx_bytes=%lu rx_frames=%lu crc_errors=%lu\r\n",
-             (unsigned int)bsp_uart_available(COMPASS_UART),
-             (unsigned long)s_rx_bytes_total, (unsigned long)s_rx_frames_total,
-             (unsigned long)s_rx_crc_errors);
-#endif
     return false;
 }
 
@@ -690,7 +560,14 @@ void compass_calib_mag_start(void)
     bool powered;
     taskENTER_CRITICAL();
     powered = s_powered;
+    /* MCP406：StartCal 后自动采集第一点，预置 1；
+       MCG505：实机确认 StartCal 不自动采样，预置 0，点数以模块返回为准；
+       JY901B：无采样式校准，保持 0。 */
+#if COMPASS_MODEL == COMPASS_MODEL_MCP406
+    s_cal.sample_count = 1U;
+#else
     s_cal.sample_count = 0U;
+#endif
     s_cal.cal_score = -1.0f;
     s_cal.score_valid = false;
     taskEXIT_CRITICAL();

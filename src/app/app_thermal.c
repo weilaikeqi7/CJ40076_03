@@ -14,7 +14,6 @@
 #include "app_measure.h"
 #include "bsp_adc.h"
 #include "dev_heater.h"
-#include "debug_log.h"
 
 /** 加热当前是否被电压保护切断（带滞环） */
 static bool     s_volt_cut;
@@ -35,7 +34,6 @@ void app_thermal_init(void)
     s_last_duty    = 0U;
     s_cur_duty     = 0U;
     s_inited       = true;
-    LOG_THERM("[STATE][THERM] heater=off reason=init\r\n");
 }
 
 void app_thermal_off(void)
@@ -45,7 +43,6 @@ void app_thermal_off(void)
     s_prewarm_left = 0U;
     s_last_duty    = 0U;
     s_cur_duty     = 0U;
-    LOG_THERM("[STATE][THERM] heater=off reason=power_off\r\n");
 }
 
 void app_thermal_pause(void)
@@ -70,12 +67,6 @@ void app_thermal_step(uint32_t vbat_mv)
 {
     int16_t  temp_c10 = bsp_ntc_temperature_c10();
     uint16_t duty     = 0U;
-    uint8_t  state    = 0U;
-    const char* reason = "off";
-#if !ENABLE_DEBUG_LOG
-    (void)state;
-    (void)reason;
-#endif
 
     /* 温度换算返回无效标记时立即关闭；不使用失效读数继续计算占空比。 */
     if (temp_c10 == BSP_TEMP_INVALID)
@@ -85,8 +76,6 @@ void app_thermal_step(uint32_t vbat_mv)
         s_prewarm_left = 0U;
         s_last_duty    = 0U;
         s_cur_duty     = 0U;
-        LOG_THERM("[FAULT][THERM] temp_invalid vbat_mv=%lu duty_permille=0\r\n",
-                 (unsigned long)vbat_mv);
         return;
     }
 
@@ -104,8 +93,6 @@ void app_thermal_step(uint32_t vbat_mv)
     {
         s_cur_duty = 0U;
         dev_heater_off();
-        LOG_THERM("[FAULT][THERM] low_battery_cut temp_c10=%d vbat_mv=%lu duty_permille=0\r\n",
-                 (int)temp_c10, (unsigned long)vbat_mv);
         return;
     }
 
@@ -114,12 +101,8 @@ void app_thermal_step(uint32_t vbat_mv)
     if (measure_round_active())
     {
         duty   = APP_HEATER_DUTY_PREWARM;
-        state  = 7U;
-        reason = "laser_derate";
         s_cur_duty = duty;
         dev_heater_set_power(duty);
-        LOG_THERM("[STATUS][THERM] temp_c10=%d vbat_mv=%lu duty_permille=%u state=%u reason=%s\r\n",
-                 (int)temp_c10, (unsigned long)vbat_mv, (unsigned int)duty, (unsigned int)state, reason);
         return;
     }
 
@@ -128,64 +111,64 @@ void app_thermal_step(uint32_t vbat_mv)
         s_prewarm_left > 0U)
     {
         duty = APP_HEATER_DUTY_PREWARM;
-        state = 6U;
-        reason = "prewarm";
         s_prewarm_left--;
         s_cur_duty = duty;
         dev_heater_set_power(duty);
-        LOG_THERM("[STATUS][THERM] temp_c10=%d vbat_mv=%lu duty_permille=%u state=%u reason=%s\r\n",
-                 (int)temp_c10, (unsigned long)vbat_mv, (unsigned int)duty, (unsigned int)state, reason);
         return;
     }
 
-    /* 温度分级自适应调节（带 ±0.5℃ 滞环，防止 NTC 抖动跳档） */
-    if (temp_c10 >= APP_HEATER_TEMP_OFF_C10)
+    /* 温度分级自适应调节，带 ±0.5℃ 滞环：NTC 在 -40℃ 附近每 1℃ 只有 3~4 个
+     * ADC 码，分界线附近读数抖动会导致档位来回切、加热忽大忽小。规则：
+     * 升档要求温度高出分界线 0.5℃，降档要求低出 0.5℃，带内维持上一档。 */
+    if (temp_c10 >= APP_HEATER_TEMP_OFF_C10 + APP_HEATER_TEMP_HYST_C10)
     {
-        duty   = 0U;
-        state  = 1U;
-        reason = "temp_off";
+        duty = 0U;                                   /* > 15.5℃：彻底关闭 */
     }
-    else if (temp_c10 >= APP_HEATER_TEMP_WARM_C10)
+    else if (temp_c10 >= APP_HEATER_TEMP_OFF_C10 - APP_HEATER_TEMP_HYST_C10)
     {
-        duty   = APP_HEATER_DUTY_KEEP_WARM;
-        state  = 2U;
-        reason = "keep_warm";
+        duty = (s_last_duty == APP_HEATER_DUTY_KEEP_WARM ||
+                s_last_duty == APP_HEATER_DUTY_WARM_UP ||
+                s_last_duty == APP_HEATER_DUTY_COLD_HIGH ||
+                s_last_duty == APP_HEATER_DUTY_COLD_LOW ||
+                s_last_duty == APP_HEATER_DUTY_PREWARM)
+                   ? s_last_duty                     /* 14.5~15.5℃ 带内：维持 */
+                   : APP_HEATER_DUTY_KEEP_WARM;      /* 冷启动在此带：保温 */
     }
-    else if (temp_c10 >= APP_HEATER_TEMP_COLD_C10)
+    else if (temp_c10 >= APP_HEATER_TEMP_WARM_C10 + APP_HEATER_TEMP_HYST_C10)
     {
-        duty   = APP_HEATER_DUTY_WARM_UP;
-        state  = 3U;
-        reason = "warm_up";
+        duty = APP_HEATER_DUTY_KEEP_WARM;            /* 0.5~14.5℃：保温 */
+    }
+    else if (temp_c10 >= APP_HEATER_TEMP_WARM_C10 - APP_HEATER_TEMP_HYST_C10)
+    {
+        duty = (s_last_duty == APP_HEATER_DUTY_WARM_UP ||
+                s_last_duty == APP_HEATER_DUTY_COLD_HIGH ||
+                s_last_duty == APP_HEATER_DUTY_COLD_LOW ||
+                s_last_duty == APP_HEATER_DUTY_PREWARM)
+                   ? s_last_duty                     /* -0.5~0.5℃ 带内：维持 */
+                   : APP_HEATER_DUTY_WARM_UP;        /* 从高温降到此带：升温 */
+    }
+    else if (temp_c10 >= APP_HEATER_TEMP_COLD_C10 + APP_HEATER_TEMP_HYST_C10)
+    {
+        duty = APP_HEATER_DUTY_WARM_UP;              /* -4.5~-0.5℃：快速升温 */
+    }
+    else if (temp_c10 >= APP_HEATER_TEMP_COLD_C10 - APP_HEATER_TEMP_HYST_C10)
+    {
+        duty = (s_last_duty == APP_HEATER_DUTY_COLD_HIGH ||
+                s_last_duty == APP_HEATER_DUTY_COLD_LOW ||
+                s_last_duty == APP_HEATER_DUTY_PREWARM)
+                   ? s_last_duty                     /* -5.5~-4.5℃ 带内：维持 */
+                   : APP_HEATER_DUTY_COLD_LOW;       /* 从保温降到此带：极寒低档 */
     }
     else
     {
-        /* <-5℃（极寒至 -40℃）：根据电池充裕程度自适应 */
+        /* < -5.5℃（极寒至 -40℃）：根据电池充裕程度自适应 */
         if (vbat_mv >= APP_HEATER_VBAT_RICH_MV)
         {
             duty = APP_HEATER_DUTY_COLD_HIGH;
-            state = 4U;
-            reason = "cold_high";
         }
         else
         {
             duty = APP_HEATER_DUTY_COLD_LOW;
-            state = 5U;
-            reason = "cold_low";
-        }
-    }
-
-    /* 温度滞环：仅当目标档位与上一档位不同且温度越过门限 ±0.5℃ 时才切换 */
-    if (duty != s_last_duty && s_last_duty != 0U)
-    {
-        if ((duty > s_last_duty && temp_c10 > (int16_t)(APP_HEATER_TEMP_COLD_C10 + APP_HEATER_TEMP_HYST_C10)) ||
-            (duty < s_last_duty && temp_c10 < (int16_t)(APP_HEATER_TEMP_COLD_C10 - APP_HEATER_TEMP_HYST_C10)))
-        {
-            /* 越过滞环带，允许切换 */
-        }
-        else if (state >= 2U && state <= 5U)
-        {
-            /* 在滞环带内，维持上一档位 */
-            duty = s_last_duty;
         }
     }
 
@@ -199,6 +182,4 @@ void app_thermal_step(uint32_t vbat_mv)
     s_last_duty = duty;
     s_cur_duty  = duty;
     dev_heater_set_power(duty);
-    LOG_THERM("[STATUS][THERM] temp_c10=%d vbat_mv=%lu duty_permille=%u state=%u reason=%s\r\n",
-             (int)temp_c10, (unsigned long)vbat_mv, (unsigned int)duty, (unsigned int)state, reason);
 }

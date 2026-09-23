@@ -25,12 +25,6 @@ _Static_assert(sizeof(record_t) == 20, "record size changed");
 static unsigned char flash[2048];
 static bool fail_write;
 static unsigned writes;
-static unsigned failures_logged;
-
-void test_log(const char* format, ...)
-{
-    if (strstr(format, "failed") != NULL) ++failures_logged;
-}
 void dev_storage_init(void) {}
 void dev_storage_read(uint32_t offset, void* buf, size_t len)
 {
@@ -76,7 +70,6 @@ static void fixture(uint16_t model, uint32_t count)
     rec.crc = crc16((const unsigned char*)&rec, offsetof(record_t, crc));
     memcpy(flash, &rec, sizeof(rec));
     writes = 0;
-    failures_logged = 0;
     fail_write = false;
 }
 
@@ -181,14 +174,14 @@ static void test_write_failures(void)
     assert(!store_save_count());
     app_offsets_t offsets = {1, 2, 3};
     assert(!store_save_offsets(&offsets));
-    assert(writes == 2 && failures_logged == 2);
+    assert(writes == 2);
     assert(memcmp(before, flash, sizeof(before)) == 0);
 
     fixture(0, 777);
     fail_write = true;
     store_init();
     assert_defaults(777);
-    assert(writes == 1 && failures_logged == 1);
+    assert(writes == 1);
     record_t rec;
     memcpy(&rec, flash, sizeof(rec));
     assert(rec.model == 0); /* Failed migration leaves old Flash intact. */
@@ -198,7 +191,7 @@ static void test_write_failures(void)
     fail_write = true;
     store_init();
     assert_defaults(0);
-    assert(writes == 1 && failures_logged == 1);
+    assert(writes == 1);
 }
 
 int main(void)

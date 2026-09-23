@@ -7,7 +7,6 @@
 #include "app_attitude.h"
 #include "app_config.h"
 #include "dev_compass.h"
-#include "debug_log.h"
 
 /* 异步硬件命令：由 calib_step() 在按键任务中逐步推进。 */
 typedef enum
@@ -55,7 +54,6 @@ static void page_enter(calib_state_t page)
     attitude_get_offsets(&work);
     state = page;
     app_key_set_calib_mode(true);
-    LOG_CALIB("calib: enter compensation page %d\r\n", (int)page);
 }
 
 static void page_exit(void)
@@ -181,7 +179,6 @@ void calib_step(void)
     {
         mag_finishing = false;
         state = CALIB_NONE;
-        LOG_CALIB("calib: %s magnetic calibration ended\r\n", compass_model_name());
         return;
     }
 
@@ -195,11 +192,9 @@ void calib_step(void)
         if (compass_is_busy())
         {
             pending = CMD_MAG_START;
-            LOG_CALIB("calib: %s busy, retry mag start\r\n", compass_model_name());
             break;
         }
         compass_calib_mag_start();
-        LOG_CALIB("calib: %s magnetic calibration started\r\n", compass_model_name());
         break;
     case CMD_MAG_END:
         compass_calib_mag_end();
@@ -207,7 +202,6 @@ void calib_step(void)
         if (!mag_finishing)
         {
             state = CALIB_NONE;
-            LOG_CALIB("calib: %s magnetic calibration ended\r\n", compass_model_name());
         }
         break;
     case CMD_MAG_SAMPLE:
@@ -244,11 +238,9 @@ void calib_step(void)
             (void)store_save_offsets(&work);
             attitude_set_offsets(&work);
         }
-        LOG_CALIB("calib: %s hardware operation %d finished\r\n", compass_model_name(), (int)state);
     }
     else
     {
-        LOG_CALIB("calib: %s hardware operation %d rejected\r\n", compass_model_name(), (int)state);
     }
     async_started = false;
     state = CALIB_NONE;

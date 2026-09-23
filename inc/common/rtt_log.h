@@ -29,11 +29,6 @@ void rtt_write(const char* str);
  *  使用栈上缓冲，仍须遵守 rtt_write 的中断上下文限制。 */
 void rtt_printf(const char* fmt, ...);
 
-/** 输出一帧原始二进制数据：标签、长度及大写十六进制字节。 */
-void rtt_raw_hex(const char* source, const uint8_t* data, size_t len);
-/** 输出一行原始文本数据：标签及文本内容；自动去除行尾 CR/LF。 */
-void rtt_raw_line(const char* source, const char* line, size_t len);
-
 #ifndef ENABLE_DEBUG_LOG
 #define ENABLE_DEBUG_LOG 0
 #endif

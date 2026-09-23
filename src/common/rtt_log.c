@@ -16,13 +16,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#if ENABLE_DEBUG_LOG
-#define RTT_UP_BUF_SIZE   4096U
-#define RTT_LINE_BUF_SIZE 256U
-#else
-#define RTT_UP_BUF_SIZE   128U
-#define RTT_LINE_BUF_SIZE 128U
-#endif
+#define RTT_UP_BUF_SIZE 512U
 
 typedef struct
 {
@@ -96,7 +90,7 @@ void rtt_write(const char* str)
 
 void rtt_printf(const char* fmt, ...)
 {
-    char    buf[RTT_LINE_BUF_SIZE];
+    char    buf[128];
     va_list args;
 
     va_start(args, fmt);
@@ -104,60 +98,5 @@ void rtt_printf(const char* fmt, ...)
     va_end(args);
     buf[sizeof(buf) - 1U] = '\0';
 
-    rtt_write(buf);
-}
-
-void rtt_raw_hex(const char* source, const uint8_t* data, size_t len)
-{
-    char   buf[RTT_LINE_BUF_SIZE];
-    size_t used = 0U;
-    size_t i;
-    int    n;
-
-    if (source == NULL || data == NULL) return;
-    n = snprintf(buf, sizeof(buf), "[RAW][%s] len=%u:", source, (unsigned int)len);
-    if (n < 0) return;
-    used = (size_t)n < sizeof(buf) ? (size_t)n : sizeof(buf) - 1U;
-    for (i = 0U; i < len && used + 4U < sizeof(buf); i++)
-    {
-        n = snprintf(buf + used, sizeof(buf) - used, " %02X", data[i]);
-        if (n <= 0) break;
-        used += (size_t)n;
-    }
-    if (used + 3U < sizeof(buf))
-    {
-        buf[used++] = '\r';
-        buf[used++] = '\n';
-        buf[used] = '\0';
-    }
-    else
-    {
-        buf[sizeof(buf) - 2U] = '\r';
-        buf[sizeof(buf) - 1U] = '\n';
-    }
-    rtt_write(buf);
-}
-
-void rtt_raw_line(const char* source, const char* line, size_t len)
-{
-    char   buf[RTT_LINE_BUF_SIZE];
-    size_t copy_len;
-    int    n;
-
-    if (source == NULL || line == NULL) return;
-    while (len > 0U && (line[len - 1U] == '\r' || line[len - 1U] == '\n')) len--;
-    n = snprintf(buf, sizeof(buf), "[RAW][%s] ", source);
-    if (n < 0) return;
-    copy_len = (size_t)n < sizeof(buf) ? (size_t)n : sizeof(buf) - 1U;
-    if (copy_len < sizeof(buf) - 1U)
-    {
-        size_t room = sizeof(buf) - copy_len - 3U;
-        if (len > room) len = room;
-        memcpy(buf + copy_len, line, len);
-        copy_len += len;
-        buf[copy_len++] = '\r';
-        buf[copy_len++] = '\n';
-        buf[copy_len] = '\0';
-    }
     rtt_write(buf);
 }

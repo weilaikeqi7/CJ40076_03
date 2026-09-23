@@ -16,7 +16,6 @@
 #include "dev_display.h"
 #include "dev_gnss.h"
 #include "dev_ranger.h"
-#include "debug_log.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -24,10 +23,6 @@
 static uint32_t s_batt_mv  = 4200U;
 static uint8_t  s_batt_lvl = 4U;
 static volatile bool s_shutting_down;
-#if ENABLE_DEBUG_LOG
-static uint8_t s_last_logged_lvl;
-static uint32_t s_last_logged_mv;
-#endif
 
 void app_power_init(void)
 {
@@ -96,25 +91,9 @@ void app_power_check(void)
     }
     taskEXIT_CRITICAL();
 
-#if ENABLE_DEBUG_LOG
-    if (s_batt_lvl != s_last_logged_lvl ||
-        (mv > s_last_logged_mv ? mv - s_last_logged_mv : s_last_logged_mv - mv) >= 20U)
-    {
-        LOG_POWER("[STATUS][POWER] batt_mv=%lumV batt_lvl=%u\r\n", (unsigned long)mv,
-                 (unsigned int)s_batt_lvl);
-        s_last_logged_lvl = s_batt_lvl;
-        s_last_logged_mv = mv;
-    }
-#endif
-    if (mv == 0U)
-    {
-        LOG_POWER("[FAULT][POWER] battery_adc_invalid\r\n");
-    }
-
     /* 欠压保护：低于 3000mV 自动关机防过放 */
     if (mv < APP_BATT_LOW_OFF_MV)
     {
-        LOG_POWER("sys: low battery %lumV, power off\r\n", (unsigned long)mv);
         app_power_shutdown();
     }
 }
@@ -146,10 +125,8 @@ void app_power_shutdown(void)
     /* 磁场校准中关机视为放弃本轮，不发送结束或保存命令。 */
     if (calib_mag_in_progress())
     {
-        LOG_CALIB("calib: mag calibration aborted by power off\r\n");
     }
 
-    LOG_POWER("sys: power off, save count=%lu\r\n", (unsigned long)store_get_count());
     (void)store_save_count(); /* 正常关机与欠压关机均保存计数 */
 
     lcd_power_off();            /* 先 DISP=0 再断屏电 */
